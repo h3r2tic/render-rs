@@ -3017,15 +3017,25 @@ impl RenderDevice for RenderDeviceVk {
         flush: bool,
         wait_before: Option<&[RenderResourceHandle]>,
         signal_after: Option<RenderResourceHandle>,
+        signal_fence: Option<RenderResourceHandle>,
     ) -> Result<()> {
         assert_eq!(handle.get_type(), RenderResourceType::CommandList);
         self.flush_transfers();
+
         let resource_lock = self.storage.get(handle)?;
         let mut resource = resource_lock.write().unwrap();
         let native_command_list = resource.downcast_mut::<RenderCommandListVk>().unwrap();
+
+        let signal_fence = signal_fence.map(|signal_fence| {
+            assert_eq!(signal_fence.get_type(), RenderResourceType::Fence);
+            let resource_lock = self.storage.get(signal_fence).unwrap();
+            let mut resource = resource_lock.write().unwrap();
+            resource.downcast_mut::<RenderFenceVk>().unwrap().fence
+        });
+
         if let Some(ref queue) = self.get_list_queue(native_command_list.list_type()) {
             let wait_stage = ash::vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
-            native_command_list.submit(queue.clone(), &[], &[], None, wait_stage)?;
+            native_command_list.submit(queue.clone(), &[], &[], signal_fence, wait_stage)?;
             Ok(())
         } else {
             Err(Error::backend("no queue available for command list"))
@@ -3480,10 +3490,10 @@ impl RenderDevice for RenderDeviceVk {
 
         self.flush_transfers();
 
-        unsafe {
+        /*unsafe {
             // TODO: Temp for testing
             self.logical_device.device().device_wait_idle().unwrap();
-        }
+        }*/
 
         // TODO: reset linear allocator
         frames.frames[frames.frame_index]
@@ -3491,6 +3501,31 @@ impl RenderDevice for RenderDeviceVk {
             .write()
             .unwrap()
             .reset();
+
+        Ok(())
+    }
+
+    fn wait_for_fence(&self, fence: RenderResourceHandle) -> Result<()> {
+        assert_eq!(fence.get_type(), RenderResourceType::Fence);
+        let resource_lock = self.storage.get(fence).unwrap();
+        let resource = resource_lock.write().unwrap();
+        let fence = resource.downcast_ref::<RenderFenceVk>().unwrap().fence;
+
+        let vk_device = self.logical_device.device();
+
+        unsafe {
+            vk_device
+                .wait_for_fences(&[fence], true, std::u64::MAX)
+                .expect("Wait for fence failed.");
+        }
+
+        Ok(())
+    }
+
+    fn device_wait_idle(&self) -> Result<()> {
+        unsafe {
+            self.logical_device.device().device_wait_idle().unwrap();
+        }
 
         Ok(())
     }

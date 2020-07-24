@@ -557,6 +557,7 @@ impl RenderDevice for RenderDeviceMock {
         flush: bool,
         wait_before: Option<&[RenderResourceHandle]>,
         signal_after: Option<RenderResourceHandle>,
+        signal_fence: Option<RenderResourceHandle>,
     ) -> Result<()> {
         assert_eq!(handle.get_type(), RenderResourceType::CommandList);
         Ok(())
@@ -604,6 +605,14 @@ impl RenderDevice for RenderDeviceMock {
 
     fn advance_frame(&self) -> Result<()> {
         //println!("Advancing device frame");
+        Ok(())
+    }
+
+    fn wait_for_fence(&self, fence: RenderResourceHandle) -> Result<()> {
+        Ok(())
+    }
+
+    fn device_wait_idle(&self) -> Result<()> {
         Ok(())
     }
 

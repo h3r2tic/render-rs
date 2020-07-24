@@ -250,6 +250,7 @@ pub trait RenderDevice: fmt::Debug {
         flush: bool,
         wait_before: Option<&[RenderResourceHandle]>,
         signal_after: Option<RenderResourceHandle>,
+        signal_fence: Option<RenderResourceHandle>,
     ) -> Result<()>;
 
     fn compile_command_list(
@@ -279,6 +280,10 @@ pub trait RenderDevice: fmt::Debug {
     ) -> Result<()>;
 
     fn advance_frame(&self) -> Result<()>;
+
+    fn wait_for_fence(&self, fence: RenderResourceHandle) -> Result<()>;
+
+    fn device_wait_idle(&self) -> Result<()>;
 
     // Transfer Management
     // TODO:
