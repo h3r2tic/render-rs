@@ -81,7 +81,11 @@ impl HostLinearAllocator {
         let block_index = self.free_block_index(size, alignment).unwrap_or_else(|| {
             let new_block = self.create_resource_block(size);
             self.blocks.push(new_block);
-            self.remap();
+
+            // TOM-NOTE: remap asserts when calling (large) allocate more than once per frame.
+            // This doesn't seem useful (famous last words):
+            // self.remap();
+
             self.blocks.len() - 1
         });
 
@@ -124,7 +128,8 @@ impl HostLinearAllocator {
         }
 
         // If we have many blocks, merge into 1 and create as large as current total size.
-        let use_compaction = true;
+        // Tom-NOTE: disabled, as it deletes VkBuffers that are in use by the command buffer.
+        let use_compaction = false;
         if use_compaction {
             if self.blocks.len() > 1 {
                 println!(
