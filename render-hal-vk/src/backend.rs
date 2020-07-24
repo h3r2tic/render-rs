@@ -87,7 +87,8 @@ fn set_up_logging() {
     // just clone `colors_line` and overwrite our changes
     let colors_level = colors_line.clone().info(Color::Green);
     // here we set up our fern Dispatch
-    let dispatch = fern::Dispatch::new()
+
+    let console_out = fern::Dispatch::new()
         .format(move |out, message, record| {
             out.finish(format_args!(
                 "{color_line}[{date}][{target}][{level}{color_line}] {message}\x1B[0m",
@@ -115,9 +116,33 @@ fn set_up_logging() {
         .level_for("render_hal_vk::device", log::LevelFilter::Info)
         .level_for("render_hal_vk::raw", log::LevelFilter::Warn)
         // output to stdout
-        .chain(std::io::stdout())
-        .chain(fern::log_file("output.log").unwrap())
+        .chain(std::io::stdout());
+
+    let file_out = fern::Dispatch::new()
+        .format(move |out, message, record| {
+            out.finish(format_args!(
+                "[{date}][{target}][{level}] {message}",
+                date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                target = record.target(),
+                level = record.level(),
+                message = message,
+            ));
+        })
+        .level(log::LevelFilter::Trace)
+        .chain(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .append(false)
+                .open("output.log")
+                .unwrap(),
+        );
+
+    let dispatch = fern::Dispatch::new()
+        .chain(console_out)
+        .chain(file_out)
         .apply();
+
     match dispatch {
         Ok(_) => {
             debug!("finished setting up logging! yay!");
@@ -149,7 +174,7 @@ impl RenderBackendVk {
                     .is_some()));
 
             let mut explicit_layers: Vec<String> = Vec::new();
-            explicit_layers.push(String::from("VK_LAYER_LUNARG_standard_validation"));
+            explicit_layers.push(String::from("VK_LAYER_KHRONOS_validation"));
 
             let mut explicit_extensions: Vec<String> = surface_extensions
                 .clone()

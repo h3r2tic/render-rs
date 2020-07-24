@@ -157,11 +157,12 @@ pub fn get_image_create_info(
         ),
     };
 
-    let mut image_usage = ash::vk::ImageUsageFlags::TRANSFER_DST; // Ideally make this 0 (need to PR ash)
+    // Ideally make this 0 (need to PR ash)
+    // Allow transfers to this surface (initial data, update)
+    let mut image_usage: ash::vk::ImageUsageFlags = ash::vk::ImageUsageFlags::TRANSFER_DST;
 
-    if initial_data {
-        image_usage |= ash::vk::ImageUsageFlags::TRANSFER_DST;
-    }
+    // Allow transfers out of the image, e.g. for presentation
+    image_usage |= ash::vk::ImageUsageFlags::TRANSFER_SRC;
 
     if desc.bind_flags.contains(RenderBindFlags::SHADER_RESOURCE) {
         image_usage |= ash::vk::ImageUsageFlags::SAMPLED;
@@ -173,14 +174,10 @@ pub fn get_image_create_info(
 
     if desc.bind_flags.contains(RenderBindFlags::RENDER_TARGET) {
         image_usage |= ash::vk::ImageUsageFlags::COLOR_ATTACHMENT;
-        image_usage |= ash::vk::ImageUsageFlags::TRANSFER_DST; // Allow transfers to this surface
-        image_usage |= ash::vk::ImageUsageFlags::TRANSFER_SRC; // Allow transfers from this surface
     }
 
     if desc.bind_flags.contains(RenderBindFlags::DEPTH_STENCIL) {
         image_usage |= ash::vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT;
-        image_usage |= ash::vk::ImageUsageFlags::TRANSFER_DST; // Allow transfers to this surface
-        image_usage |= ash::vk::ImageUsageFlags::TRANSFER_SRC; // Allow transfers from this surface
     }
 
     ash::vk::ImageCreateInfo {

@@ -372,6 +372,7 @@ impl RenderCompileContext {
     }
 
     #[inline(always)]
+    #[allow(unused_assignments)]
     fn update_texture(
         &mut self,
         native: ash::vk::CommandBuffer,
@@ -394,6 +395,7 @@ impl RenderCompileContext {
         assert_ne!(texture.desc.texture_type, RenderTextureType::Tex1dArray);
         assert_ne!(texture.desc.texture_type, RenderTextureType::Tex2dArray);
 
+        // TODO: use those two:
         let mut sub_resource_count = texture.desc.levels * texture.desc.elements;
         let mut upload_size = get_texture_size(
             texture.desc.format,
@@ -403,6 +405,7 @@ impl RenderCompileContext {
             texture.desc.levels.into(),
             texture.desc.elements.into(),
         );
+
         if texture.desc.texture_type == RenderTextureType::Cube
             || texture.desc.texture_type == RenderTextureType::CubeArray
         {
@@ -449,6 +452,9 @@ impl RenderCompileContext {
             encoder.get_command_data(typed_command.sub_data_mark, typed_command.sub_data_size)?;
 
         let layout_info = get_texture_layout_info(texture.desc.format, mip_width, mip_height);
+
+        // NOTE: Only tightly-packed source data is supported right now. If this changes,
+        // buffer_row_length should be calculated for the BufferImageCopy below.
         assert_eq!(layout_info.pitch, row_pitch);
         assert_eq!(layout_info.slice_pitch, slice_pitch);
 
@@ -472,9 +478,13 @@ impl RenderCompileContext {
         }
 
         let copy_region = ash::vk::BufferImageCopy::builder()
-            .buffer_row_length(row_pitch)
+            // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkBufferImageCopy.html:
+            // bufferRowLength and bufferImageHeight specify in texels a subregion of a larger two- or three-dimensional image
+            // in buffer memory, and control the addressing calculations. If either of these values is zero, that aspect
+            // of the buffer memory is considered to be tightly packed according to the imageExtent.
+            .buffer_row_length(0)
+            .buffer_image_height(0)
             .buffer_offset(src_offset)
-            .buffer_image_height(mip_height)
             .image_offset(ash::vk::Offset3D { x: 0, y: 0, z: 0 })
             .image_extent(ash::vk::Extent3D {
                 width: mip_width,
