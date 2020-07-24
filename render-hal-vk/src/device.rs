@@ -481,6 +481,9 @@ impl Drop for RenderDeviceVk {
             }
         }
 
+        // Destroy the global allocator before dropping the device
+        self.global_allocator.write().unwrap().destroy();
+
         unsafe {
             raw_device.device_wait_idle().unwrap();
             if self.pipeline_cache != ash::vk::PipelineCache::null() {
