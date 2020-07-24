@@ -2318,7 +2318,118 @@ impl RenderDevice for RenderDeviceVk {
             debug_name, desc
         );
 
-        unimplemented!()
+        let device = Arc::clone(&self.logical_device);
+        let raw_device = device.device();
+
+        let mut data = RenderPipelineLayoutVk::default();
+
+        // Add in static/immutable samplers
+        // Also merge these in? Could allow for mixing immutable vs mutable, too
+        data.static_samplers
+            .reserve(desc.shader_signature.static_sampler_count as usize);
+        data.sampler_layouts
+            .reserve(desc.shader_signature.static_sampler_count as usize);
+        for sampler_index in 0..desc.shader_signature.static_sampler_count {
+            let sampler_state = &desc.shader_signature.static_samplers[sampler_index as usize];
+            let sampler_info = make_vulkan_sampler(sampler_state);
+            let sampler = unsafe { raw_device.create_sampler(&sampler_info, None).unwrap() };
+            let sampler_binding = ash::vk::DescriptorSetLayoutBinding::builder()
+                .stage_flags(ash::vk::ShaderStageFlags::ALL_GRAPHICS)
+                .descriptor_type(ash::vk::DescriptorType::SAMPLER)
+                .descriptor_count(1)
+                .binding(SMP_OFFSET + sampler_index)
+                .immutable_samplers(&[sampler])
+                .build();
+            data.sampler_layouts.push(sampler_binding);
+            data.static_samplers.push(sampler);
+        }
+
+        let shader_resource_lock = self.storage.get(desc.shader)?;
+        let shader_resource = shader_resource_lock.read().unwrap();
+        let stage_create_info = {
+            let shader = shader_resource.downcast_ref::<RenderShaderVk>().unwrap();
+
+            merge_descriptor_set_layouts(shader, &mut data.combined_layouts);
+
+            ash::vk::PipelineShaderStageCreateInfo::builder()
+                .stage(get_shader_stage(RenderShaderType::Compute))
+                .module(shader.module)
+                .name(&shader.entry_point)
+        };
+
+        let mut descriptor_layouts: Vec<ash::vk::DescriptorSetLayout> = Vec::new();
+        descriptor_layouts.resize(
+            MAX_SHADER_PARAMETERS + MAX_SHADER_PARAMETERS,
+            ash::vk::DescriptorSetLayout::null(),
+        );
+
+        for index in 0..data.combined_layouts.len() {
+            let mut combined_layout = &mut data.combined_layouts[index];
+            let create_info = ash::vk::DescriptorSetLayoutCreateInfo::builder()
+                .bindings(&combined_layout.bindings)
+                .build();
+
+            combined_layout.layout = unsafe {
+                raw_device
+                    .create_descriptor_set_layout(&create_info, None)
+                    .unwrap()
+            };
+
+            assert_eq!(
+                descriptor_layouts[combined_layout.set_index as usize],
+                ash::vk::DescriptorSetLayout::null()
+            );
+            descriptor_layouts[combined_layout.set_index as usize] = combined_layout.layout;
+            for binding in &combined_layout.bindings {
+                tally_descriptor_pool_sizes(&mut data.pool_sizes, binding.descriptor_type);
+            }
+        }
+
+        for index in 0..descriptor_layouts.len() {
+            if index >= MAX_SHADER_PARAMETERS {
+                descriptor_layouts[index] =
+                    self.cbuffer_descriptor_set_layouts[index - MAX_SHADER_PARAMETERS];
+            } else if descriptor_layouts[index] == ash::vk::DescriptorSetLayout::null() {
+                descriptor_layouts[index] = self.empty_descriptor_set_layout;
+            }
+        }
+
+        // Create pipeline layout
+        let pipeline_layout_create_info = ash::vk::PipelineLayoutCreateInfo::builder()
+            .push_constant_ranges(&[]) // TODO: Add support
+            .set_layouts(&descriptor_layouts)
+            .build();
+        data.pipeline_layout = unsafe {
+            raw_device
+                .create_pipeline_layout(&pipeline_layout_create_info, None)
+                .unwrap()
+        };
+
+        // Construction
+        let pipeline_create_info = ash::vk::ComputePipelineCreateInfo::builder()
+            .stage(stage_create_info.build())
+            .layout(data.pipeline_layout);
+
+        let pipelines = unsafe {
+            raw_device
+                .create_compute_pipelines(
+                    self.pipeline_cache,
+                    &[pipeline_create_info.build()],
+                    None,
+                )
+                .unwrap()
+        };
+        let pipeline = pipelines[0];
+
+        let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> =
+            Arc::new(RwLock::new(Box::new(RenderComputePipelineStateVk {
+                name: debug_name.to_string().into(),
+                data,
+                pipeline,
+            })));
+
+        self.storage.put(handle, resource)?;
+        Ok(())
     }
 
     fn create_draw_binding_set(

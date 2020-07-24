@@ -455,7 +455,7 @@ pub struct RenderShaderParameter {
 
 impl RenderShaderParameter {
     #[inline(always)]
-    fn new(shader_resource_count: u32, unordered_access_count: u32) -> Self {
+    pub fn new(shader_resource_count: u32, unordered_access_count: u32) -> Self {
         RenderShaderParameter {
             shader_resource_count,
             unordered_access_count,
@@ -464,7 +464,7 @@ impl RenderShaderParameter {
     }
 
     #[inline(always)]
-    fn new_with_space(
+    pub fn new_with_space(
         shader_resource_count: u32,
         unordered_access_count: u32,
         register_space: i32,
@@ -501,7 +501,10 @@ pub struct RenderShaderSignatureDesc {
 
 impl RenderShaderSignatureDesc {
     #[inline(always)]
-    fn new(parameters: &[RenderShaderParameter], static_samplers: &[RenderSamplerState]) -> Self {
+    pub fn new(
+        parameters: &[RenderShaderParameter],
+        static_samplers: &[RenderSamplerState],
+    ) -> Self {
         // TODO: Improve
         assert!(parameters.len() <= MAX_SHADER_PARAMETERS);
         assert!(static_samplers.len() < MAX_SAMPLER_BINDINGS);
