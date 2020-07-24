@@ -1349,6 +1349,11 @@ impl RenderDevice for RenderDeviceVk {
         let mut remaps: Vec<BindingSetRemap> = Vec::new();
         match spirv_reflect::ShaderModule::load_u8_data(&desc.shader_data) {
             Ok(mut reflect_module) => {
+                let mut cbv_count = 0;
+                let mut srv_count = 0;
+                let mut smp_count = 0;
+                let mut uav_count = 0;
+
                 let descriptor_sets = reflect_module.enumerate_descriptor_sets(None).unwrap();
                 for set_index in 0..descriptor_sets.len() {
                     let set = &descriptor_sets[set_index];
@@ -1364,38 +1369,42 @@ impl RenderDevice for RenderDeviceVk {
 								remaps.push(BindingSetRemap {
 									binding_index: binding_index as u32,
 									old_binding: binding.binding,
-									new_binding: binding.binding + CBV_OFFSET + set_index as u32,
+									new_binding: cbv_count + CBV_OFFSET + set_index as u32,
 									old_set: set_index as u32,
 									new_set: SET_OFFSET + set_index as u32,
 								});
-								assert!(SET_OFFSET as usize + set_index >= descriptor_sets.len()); // Make sure we don't use more spaces/sets than 5
+                                assert!(SET_OFFSET as usize + set_index >= descriptor_sets.len()); // Make sure we don't use more spaces/sets than 5
+                                cbv_count += 1;
 							},
 							spirv_reflect::types::resource::ReflectResourceType::ShaderResourceView => {
 								remaps.push(BindingSetRemap {
 									binding_index: binding_index as u32,
 									old_binding: binding.binding,
-									new_binding: binding.binding + SRV_OFFSET,
+									new_binding: srv_count + SRV_OFFSET,
 									old_set: set_index as u32,
 									new_set: ARG_OFFSET + set_index as u32,
-								});
+                                });
+                                srv_count += 1;
 							},
 							spirv_reflect::types::resource::ReflectResourceType::Sampler => {
 								remaps.push(BindingSetRemap {
 									binding_index: binding_index as u32,
 									old_binding: binding.binding,
-									new_binding: binding.binding + SMP_OFFSET,
+									new_binding: smp_count + SMP_OFFSET,
 									old_set: set_index as u32,
 									new_set: ARG_OFFSET + set_index as u32,
-								});
+                                });
+                                smp_count += 1;
 							},
 							spirv_reflect::types::resource::ReflectResourceType::UnorderedAccessView => {
 								remaps.push(BindingSetRemap {
 									binding_index: binding_index as u32,
 									old_binding: binding.binding,
-									new_binding: binding.binding + UAV_OFFSET,
+									new_binding: uav_count + UAV_OFFSET,
 									old_set: set_index as u32,
 									new_set: ARG_OFFSET + set_index as u32,
-								});
+                                });
+                                uav_count += 1;
 							},
 							_ => unimplemented!(),
 						}

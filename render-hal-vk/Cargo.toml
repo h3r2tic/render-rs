@@ -24,7 +24,8 @@ enum_primitive = "0.1.1"
 downcast-rs = "1.1.1"
 vk-sync = { git = "https://github.com/zedrian/vk-sync-rs.git", rev = "e28c05d" }
 vk-mem = "0.2.2"
-spirv-reflect = "0.2.3"
+#spirv-reflect = "0.2.3"
+spirv-reflect = { git = "https://github.com/h3r2tic/spirv-reflect-rs.git", rev = "47636b8" }
 num-traits = "0.2.10"
 meowhash = "0.1.2"
 digest = "0.8.1"

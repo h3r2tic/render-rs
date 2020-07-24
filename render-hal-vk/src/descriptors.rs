@@ -323,7 +323,7 @@ impl DescriptorSetCache {
                                         range: buffer.desc.size as u64,
                                     });
 
-                                    write = write.buffer_info(&buffer_info[slot..1]);
+                                    write = write.buffer_info(&buffer_info[slot..slot + 1]);
                                 }
                             }
                             RenderResourceType::Texture => {
@@ -334,7 +334,7 @@ impl DescriptorSetCache {
                                     ..Default::default()
                                 });
 
-                                write = write.image_info(&image_info[slot..1]);
+                                write = write.image_info(&image_info[slot..slot + 1]);
                             }
                             _ => unimplemented!(),
                         }
@@ -349,7 +349,8 @@ impl DescriptorSetCache {
                         if shader_views.srvs[srv_index].buffer_view != ash::vk::BufferView::null() {
                             let texel_slot = texel_buffers.len() - 1;
                             texel_buffers.push(shader_views.srvs[srv_index].buffer_view.clone());
-                            write = write.texel_buffer_view(&texel_buffers[texel_slot..1]);
+                            write =
+                                write.texel_buffer_view(&texel_buffers[texel_slot..texel_slot + 1]);
                         }
 
                         writes.push(write.build());
@@ -392,7 +393,7 @@ impl DescriptorSetCache {
                                         range: buffer.desc.size as u64,
                                     });
 
-                                    write = write.buffer_info(&buffer_info[slot..1]);
+                                    write = write.buffer_info(&buffer_info[slot..slot + 1]);
                                 }
                             }
                             RenderResourceType::Texture => {
@@ -403,7 +404,7 @@ impl DescriptorSetCache {
                                     ..Default::default()
                                 });
 
-                                write = write.image_info(&image_info[slot..1]);
+                                write = write.image_info(&image_info[slot..slot + 1]);
                             }
                             _ => unimplemented!(),
                         }
@@ -418,7 +419,8 @@ impl DescriptorSetCache {
                         if shader_views.uavs[uav_index].buffer_view != ash::vk::BufferView::null() {
                             let texel_slot = texel_buffers.len() - 1;
                             texel_buffers.push(shader_views.uavs[uav_index].buffer_view.clone());
-                            write = write.texel_buffer_view(&texel_buffers[texel_slot..1]);
+                            write =
+                                write.texel_buffer_view(&texel_buffers[texel_slot..texel_slot + 1]);
                         }
 
                         writes.push(write.build());
