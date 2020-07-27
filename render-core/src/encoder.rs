@@ -121,6 +121,11 @@ impl<'a> RenderCommandList<'a> {
         dispatch_y: u32,
         dispatch_z: u32,
     ) -> Result<RenderCommandId> {
+        assert_eq!(
+            pipeline_state.get_type(),
+            RenderResourceType::ComputePipelineState
+        );
+
         type CommandType = RenderCommandDispatch;
         let mark = self.allocator.allocate_typed::<CommandType>()?;
         let cmd = self.allocator.mark_place::<CommandType>(

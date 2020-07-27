@@ -585,6 +585,7 @@ impl RenderDevice for RenderDeviceMock {
         &mut self,
         swap_chain: RenderResourceHandle,
         source_texture: RenderResourceHandle,
+        signal_fence: Option<RenderResourceHandle>,
     ) -> Result<()> {
         //println!("Presenting swap chain - {:?}", swap_chain);
         Ok(())

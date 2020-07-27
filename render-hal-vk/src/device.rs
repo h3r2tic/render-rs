@@ -3105,12 +3105,20 @@ impl RenderDevice for RenderDeviceVk {
         &mut self,
         swap_chain: RenderResourceHandle,
         source_texture: RenderResourceHandle,
+        signal_fence: Option<RenderResourceHandle>,
     ) -> Result<()> {
         trace!("Presenting swap chain - {:?}", swap_chain);
 
         let swap_chain = self.storage.get(swap_chain)?;
         let mut swap_chain = swap_chain.write().unwrap();
         let swap_chain = swap_chain.downcast_mut::<RenderSwapChainVk>().unwrap();
+
+        let signal_fence = signal_fence.map(|signal_fence| {
+            assert_eq!(signal_fence.get_type(), RenderResourceType::Fence);
+            let resource_lock = self.storage.get(signal_fence).unwrap();
+            let mut resource = resource_lock.write().unwrap();
+            resource.downcast_mut::<RenderFenceVk>().unwrap().fence
+        });
 
         let present_index = unsafe {
             self.swap_chain_loader.acquire_next_image(
@@ -3349,7 +3357,7 @@ impl RenderDevice for RenderDeviceVk {
                         queue.clone(),
                         &[swap_chain.acquire_image_semaphore],
                         &[swap_chain.render_done_semaphore],
-                        None,
+                        signal_fence,
                         ash::vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                     )?;
 

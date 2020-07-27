@@ -270,6 +270,7 @@ pub trait RenderDevice: fmt::Debug {
         &mut self,
         swap_chain: RenderResourceHandle,
         source_texture: RenderResourceHandle,
+        signal_fence: Option<RenderResourceHandle>,
     ) -> Result<()>;
 
     fn resize_swap_chain(
