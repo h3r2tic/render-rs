@@ -1,8 +1,6 @@
 #![allow(unused_imports)]
 
 #[macro_use]
-extern crate failure;
-#[macro_use]
 extern crate log;
 extern crate chrono;
 extern crate crossbeam_channel;
@@ -12,7 +10,6 @@ extern crate smallvec;
 #[macro_use]
 extern crate enum_primitive;
 extern crate digest;
-extern crate meowhash;
 extern crate num_traits;
 extern crate render_core;
 #[cfg(not(target_os = "macos"))]

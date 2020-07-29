@@ -5,7 +5,7 @@ use crate::backend::RenderBackendMock;
 use crate::types::*;
 use render_core::device::*;
 use render_core::encoder::*;
-use render_core::error::{Error, Result};
+use render_core::error::Result;
 use render_core::handles::RenderResourceHandle;
 use render_core::resources::{RenderResourceBase, RenderResourceStorage};
 use render_core::state::*;

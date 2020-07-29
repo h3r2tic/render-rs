@@ -4,7 +4,7 @@
 
 use crate::device::RenderDeviceMock;
 use enum_primitive::FromPrimitive;
-use failure::Fail;
+
 use render_core::backend::RenderBackend;
 use render_core::device::RenderDevice;
 use render_core::device::RenderDeviceCaps;

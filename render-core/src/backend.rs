@@ -2,8 +2,8 @@
 #![allow(unused_imports)]
 
 use crate::device::{RenderDevice, RenderDeviceId, RenderDeviceInfo};
-use crate::error::{Error, Result};
-use failure::Fail;
+use crate::error::Result;
+
 use std::fmt;
 use std::sync::{Arc, RwLock};
 

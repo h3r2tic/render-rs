@@ -1,6 +1,5 @@
 use crate::backend::RenderBackendModule;
 use crate::error::{Error, Result};
-use failure::Fail;
 use glob::glob;
 use libloading::{Library, Symbol};
 use std::borrow::Borrow;

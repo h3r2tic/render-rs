@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::utilities::{align_forward, align_ptr_forward};
-use failure::Fail;
+
 use std::cmp;
 use std::marker::PhantomData;
 use std::mem;

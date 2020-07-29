@@ -1,10 +1,10 @@
 use crate::encoder::*;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::format::*;
 use crate::handles::RenderResourceHandle;
 use crate::state::*;
 use crate::types::*;
-use failure::Fail;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;

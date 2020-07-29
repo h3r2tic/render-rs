@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 
 use ash;
+use thiserror::Error;
 
-#[derive(Clone, Copy, Debug, Fail)]
-#[fail(display = "Device lost")]
+#[derive(Error, Debug)]
+#[error("Device lost")]
 pub struct DeviceLost;
 
 impl DeviceLost {
@@ -15,8 +16,8 @@ impl DeviceLost {
     }
 }
 
-#[derive(Clone, Copy, Debug, Fail)]
-#[fail(display = "Surface lost")]
+#[derive(Error, Debug)]
+#[error("Surface lost")]
 pub struct SurfaceLost;
 
 impl SurfaceLost {
@@ -29,14 +30,14 @@ impl SurfaceLost {
 }
 
 /// Out of memory error.
-#[derive(Clone, Copy, Debug, Fail)]
+#[derive(Error, Debug)]
 pub enum OomError {
     /// Host memory exhausted.
-    #[fail(display = "Out of host memory")]
+    #[error("Out of host memory")]
     OutOfHostMemory,
 
     /// Device memory exhausted.
-    #[fail(display = "Out of device memory")]
+    #[error("Out of device memory")]
     OutOfDeviceMemory,
 }
 
@@ -51,27 +52,27 @@ impl OomError {
 }
 
 /// Possible errors returned by `Instance` and `PhysicalDevice`.
-#[derive(Clone, Debug, Fail)]
+#[derive(Error, Debug)]
 pub enum InstanceError {
-    #[fail(display = "Failed to load Vulkan library {}", _0)]
+    #[error("Failed to load Vulkan library {}", _0)]
     LibraryLoadError(String),
 
-    #[fail(display = "Failed to load functions {:?}", _0)]
+    #[error("Failed to load functions {:?}", _0)]
     LoadError(Vec<&'static str>),
 
-    #[fail(display = "OomError")]
-    OomError(OomError),
+    #[error(transparent)]
+    OomError(#[from] OomError),
 
-    #[fail(display = "Initialization failed")]
+    #[error("Initialization failed")]
     InitializationFailed,
 
-    #[fail(display = "Layer not present")]
+    #[error("Layer not present")]
     LayerNotPresent,
 
-    #[fail(display = "Extension not present")]
+    #[error("Extension not present")]
     ExtensionNotPresent,
 
-    #[fail(display = "Incompatible driver")]
+    #[error("Incompatible driver")]
     IncompatibleDriver,
 }
 
@@ -105,27 +106,27 @@ impl InstanceError {
 }
 
 /// Possible errors returned by `Device`.
-#[derive(Clone, Debug, Fail)]
+#[derive(Error, Debug)]
 pub enum DeviceError {
-    #[fail(display = "Failed to load device functions {:?}", _0)]
+    #[error("Failed to load device functions {:?}", _0)]
     LoadError(Vec<&'static str>),
 
-    #[fail(display = "{}", _0)]
-    OomError(OomError),
+    #[error(transparent)]
+    OomError(#[from] OomError),
 
-    #[fail(display = "{}", _0)]
-    DeviceLost(DeviceLost),
+    #[error(transparent)]
+    DeviceLost(#[from] DeviceLost),
 
-    #[fail(display = "Initialization failed")]
+    #[error("Initialization failed")]
     InitializationFailed,
 
-    #[fail(display = "Extension not present")]
+    #[error("Extension not present")]
     ExtensionNotPresent,
 
-    #[fail(display = "Feature not present")]
+    #[error("Feature not present")]
     FeatureNotPresent,
 
-    #[fail(display = "Too many objects")]
+    #[error("Too many objects")]
     TooManyObjects,
 }
 
@@ -155,18 +156,18 @@ impl DeviceError {
     }
 }
 
-#[derive(Clone, Debug, Fail)]
+#[derive(Error, Debug)]
 pub enum SurfaceError {
-    #[fail(display = "{}", _0)]
-    OomError(OomError),
+    #[error(transparent)]
+    OomError(#[from] OomError),
 
-    #[fail(display = "{}", _0)]
-    DeviceLost(DeviceLost),
+    #[error(transparent)]
+    DeviceLost(#[from] DeviceLost),
 
-    #[fail(display = "Surface lost")]
-    SurfaceLost(SurfaceLost),
+    #[error(transparent)]
+    SurfaceLost(#[from] SurfaceLost),
 
-    #[fail(display = "Native window in use")]
+    #[error("Native window in use")]
     WindowInUse,
 }
 

@@ -5,24 +5,16 @@
 extern crate option_set;
 #[macro_use]
 extern crate bitflags;
-extern crate serde;
-extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
 extern crate enum_primitive;
-extern crate failure;
 #[macro_use]
 extern crate downcast_rs;
-extern crate glob;
-extern crate libloading;
-extern crate winit;
 #[macro_use]
 extern crate strum_macros;
 #[macro_use]
 extern crate log;
-extern crate chrono;
-extern crate fern;
 
 pub mod allocator;
 pub mod backend;
@@ -42,7 +34,7 @@ pub mod system;
 pub mod types;
 pub mod utilities;
 
-pub use crate::error::{Error, ErrorKind, Result};
+pub use crate::error::Result;
 
 #[macro_export]
 #[cfg(feature = "profiling_enabled")]

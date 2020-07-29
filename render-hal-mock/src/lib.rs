@@ -2,8 +2,6 @@
 #![allow(unused_imports)]
 
 #[macro_use]
-extern crate failure;
-#[macro_use]
 extern crate log;
 extern crate crossbeam_channel;
 extern crate smallvec;

@@ -5,7 +5,7 @@ use crate::handles::RenderResourceHandle;
 use crate::handles::RenderResourceHandleAllocator;
 use crate::modules::{create_backend_module, load_backend_modules};
 use crate::types::RenderResourceType;
-use failure::Fail;
+
 use libloading::Library;
 use std::borrow::Cow;
 use std::collections::HashMap;

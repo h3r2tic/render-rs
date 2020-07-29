@@ -5,7 +5,7 @@ use crate::handles::{RenderResourceHandle, RenderResourceHandleAllocator};
 use crate::state::*;
 use crate::types::*;
 use crate::utilities::*;
-use failure::Fail;
+
 use std::borrow::Cow;
 use std::sync::{Arc, RwLock};
 

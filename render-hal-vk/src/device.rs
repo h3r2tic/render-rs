@@ -31,7 +31,6 @@ use ash::version::DeviceV1_1;
 use ash::vk::Handle;
 use ash::{self, Device};
 use digest::Digest;
-use meowhash;
 use num_traits::FromPrimitive;
 use render_core::constants::*;
 use render_core::device::*;
@@ -173,7 +172,7 @@ impl RenderDeviceVk {
                 family: family.index,
                 count: 1,
             })
-            .ok_or(format_err!("Can't find any graphics queues"))
+            .ok_or(Error::backend("Can't find any graphics queues"))
             .unwrap();
         debug!("graphics family: {:?}", graphics_family);
 

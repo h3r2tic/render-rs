@@ -2,7 +2,6 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use failure::Fail;
 use render_core::backend::RenderBackend;
 use render_core::device::RenderDevice;
 use render_core::device::RenderDeviceId;

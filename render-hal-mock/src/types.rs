@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::device::RenderDeviceMock;
-use render_core::error::{Error, Result};
+use render_core::error::Result;
 use render_core::resources::RenderResourceBase;
 use render_core::types::*;
 use std::{borrow::Cow, fmt, sync::Arc};

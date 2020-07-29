@@ -13,8 +13,8 @@ edition = "2018"
 render-hal = { path = "../render-hal" }
 render-core = { path = "../render-core" }
 ash = "0.31"
-failure = "0.1.6"
 relevant = "0.4.2"
+thiserror = "1.0"
 log = "0.4"
 fern = { version = "0.5.9", features = ["colored"] }
 chrono = "0.4.10"
@@ -27,7 +27,6 @@ vk-mem = "0.2.2"
 #spirv-reflect = "0.2.3"
 spirv-reflect = { git = "https://github.com/h3r2tic/spirv-reflect-rs.git", rev = "47636b8" }
 num-traits = "0.2.10"
-meowhash = "0.1.2"
 digest = "0.8.1"
 twox-hash = "1.5.0"
 

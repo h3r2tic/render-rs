@@ -15,7 +15,7 @@ use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk;
 use ash::Device;
 use enum_primitive::FromPrimitive;
-use failure::Fail;
+
 use render_core::backend::RenderBackend;
 use render_core::device::RenderDevice;
 use render_core::device::RenderDeviceCaps;
@@ -109,12 +109,12 @@ fn set_up_logging() {
         // field which defaults to the module path but can be overwritten with the `target`
         // parameter:
         // `info!(target="special_target", "This log message is about special_target");`
-        .level_for("render_hal_vk", log::LevelFilter::Trace)
+        /*.level_for("render_hal_vk", log::LevelFilter::Trace)
         .level_for("render_hal_vk::compile", log::LevelFilter::Info)
         .level_for("render_hal_vk::backend", log::LevelFilter::Warn)
         .level_for("render_hal_vk::types", log::LevelFilter::Warn)
         .level_for("render_hal_vk::device", log::LevelFilter::Info)
-        .level_for("render_hal_vk::raw", log::LevelFilter::Warn)
+        .level_for("render_hal_vk::raw", log::LevelFilter::Warn)*/
         // output to stdout
         .chain(std::io::stdout());
 
