@@ -257,7 +257,6 @@ impl RenderCompileContext {
                     typed_command.draw_packet.first_instance,
                 );
             }
-            unimplemented!();
         }
         Ok(())
     }

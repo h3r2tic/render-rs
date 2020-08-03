@@ -713,7 +713,7 @@ pub struct RenderFrameBindingSetDesc {
     pub depth_stencil_view: Option<RenderBindingDepthStencilView>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct RenderTargetInfo {
     pub load_op: RenderLoadOp,
     pub store_op: RenderStoreOp,
