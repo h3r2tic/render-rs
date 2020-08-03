@@ -417,6 +417,18 @@ pub struct RenderDrawPacket {
     pub instance_count: u32,
 }
 
+impl Default for RenderDrawPacket {
+    fn default() -> Self {
+        Self {
+            index_offset: 0,
+            vertex_offset: 0,
+            vertex_count: 0,
+            first_instance: 0,
+            instance_count: 1,
+        }
+    }
+}
+
 //#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[derive(Clone)]
 pub struct RenderSwapChainDesc {
