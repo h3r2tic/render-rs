@@ -104,14 +104,18 @@ pub enum RenderBorderColor {
     WhiteA1 = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount, Serialize, Deserialize,
+)]
 pub enum RenderCullMode {
     None = 0,
     Front = 1,
     Back = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount, Serialize, Deserialize,
+)]
 pub enum RenderBlendMode {
     Zero = 0,
     One = 1,
@@ -132,7 +136,9 @@ pub enum RenderBlendMode {
     InvSource1Alpha = 16,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount, Serialize, Deserialize,
+)]
 pub enum RenderBlendOp {
     /// Add source 1 and source 2.
     Add = 0,
@@ -168,7 +174,9 @@ impl Default for RenderWriteMask {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount, Serialize, Deserialize,
+)]
 pub enum RenderFillMode {
     Solid = 0,
     WireFrame = 1,
@@ -213,7 +221,9 @@ pub enum RenderClearMask {
     None = 0,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount, Serialize, Deserialize,
+)]
 pub enum RenderCompareFunc {
     Never = 0,
     Less = 1,
@@ -225,7 +235,9 @@ pub enum RenderCompareFunc {
     Always = 7,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount, Serialize, Deserialize,
+)]
 pub enum RenderStencilOp {
     Keep = 0,
     Zero = 1,
@@ -246,7 +258,9 @@ pub enum RenderSamplerAddressMode {
     MirrorOnce = 4,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount, Serialize, Deserialize,
+)]
 pub enum RenderStencilMode {
     /// Stenciling is disabled
     Disabled = 0,
@@ -258,7 +272,7 @@ pub enum RenderStencilMode {
     DoubleSided = 2,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct RenderStencilSide {
     pub func: RenderCompareFunc,
     pub fail_op: RenderStencilOp,
@@ -277,7 +291,7 @@ impl Default for RenderStencilSide {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct RenderStencilState {
     pub mode: RenderStencilMode,
     pub read_mask: u8,
@@ -355,7 +369,7 @@ impl Default for RenderSamplerState {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct RenderBlendState {
     pub source_color: RenderBlendMode,
     pub source_alpha: RenderBlendMode,
@@ -380,7 +394,7 @@ impl Default for RenderBlendState {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct RenderState {
     pub blend_states: [RenderBlendState; MAX_RENDER_TARGET_COUNT],
     pub stencil: RenderStencilState,
