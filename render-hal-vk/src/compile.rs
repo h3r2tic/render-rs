@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use crate::descriptors::DescriptorSetCache;
+use crate::descriptors::{CbufferDescriptorSetCache, DescriptorSetCache};
 use crate::raw::device::Device as RawDevice;
 use crate::raw::format::get_image_aspect_flags;
-use crate::types::*;
+use crate::{device::SET_OFFSET, types::*};
 use ash;
 use ash::extensions::ext::DebugMarker;
 use ash::version::DeviceV1_0;
@@ -44,6 +44,8 @@ struct RenderBufferBarrier {
 pub struct RenderCompileContext {
     device: Arc<RawDevice>,
     descriptor_cache: Arc<DescriptorSetCache>,
+    cbuffer_descriptor_cache: Arc<CbufferDescriptorSetCache>,
+    cbuffer_descriptor_set_layouts: [ash::vk::DescriptorSetLayout; MAX_SHADER_PARAMETERS],
     storage: Arc<RenderResourceStorage<Box<dyn RenderResourceBase>>>,
     queue: Arc<RwLock<ash::vk::Queue>>,
     draw_state: RenderDrawState,
@@ -62,12 +64,16 @@ impl RenderCompileContext {
     pub fn new(
         device: Arc<RawDevice>,
         descriptor_cache: Arc<DescriptorSetCache>,
+        cbuffer_descriptor_cache: Arc<CbufferDescriptorSetCache>,
+        cbuffer_descriptor_set_layouts: [ash::vk::DescriptorSetLayout; MAX_SHADER_PARAMETERS],
         storage: Arc<RenderResourceStorage<Box<dyn RenderResourceBase>>>,
         queue: Arc<RwLock<ash::vk::Queue>>,
     ) -> Self {
         RenderCompileContext {
             device,
             descriptor_cache,
+            cbuffer_descriptor_cache: cbuffer_descriptor_cache,
+            cbuffer_descriptor_set_layouts,
             storage,
             queue,
             draw_state: Default::default(),
@@ -1390,17 +1396,18 @@ impl RenderCompileContext {
 
         // TODO: Check for redundancy of each of the arguments, as the whole point is the
         // some of them will change at much higher frequencies than others.
-        assert!(arguments.len() <= 4);
+        assert!(arguments.len() <= MAX_SHADER_ARGUMENTS);
 
-        let mut descriptor_sets: Vec<ash::vk::DescriptorSet> =
-            Vec::with_capacity(arguments.len() + 1);
-        for arg_index in 0..arguments.len() {
-            let views_index = arguments.len() + arg_index;
-            if let Some(shader_views) = arguments[arg_index].shader_views {
+        // TODO: use a regular array
+        let mut descriptor_sets: Vec<ash::vk::DescriptorSet> = Vec::with_capacity(arguments.len());
+
+        for (arg_index, arg) in arguments.iter().enumerate() {
+            if let Some(shader_views) = arg.shader_views {
                 let shader_views = self.storage.get(shader_views)?;
                 let mut shader_views = shader_views.write().unwrap();
                 let mut shader_views = shader_views.downcast_mut::<RenderShaderViewsVk>().unwrap();
                 let mut resource_tracker = self.resource_tracker.borrow_mut();
+
                 let cached_descriptor_set = self.descriptor_cache.memoize(
                     &mut resource_tracker,
                     arg_index as u32,
@@ -1408,6 +1415,7 @@ impl RenderCompileContext {
                     &layout_data,
                     &mut shader_views,
                 );
+
                 if let Some(entry) = cached_descriptor_set {
                     assert_ne!(entry.descriptor_pool, ash::vk::DescriptorPool::null());
                     assert_ne!(entry.descriptor_set, ash::vk::DescriptorSet::null());
@@ -1425,6 +1433,40 @@ impl RenderCompileContext {
                     0,
                     &descriptor_sets,
                     &[],
+                );
+            }
+        }
+
+        descriptor_sets.clear();
+        let mut dynamic_offsets = [0u32; MAX_SHADER_ARGUMENTS];
+
+        for (arg_index, arg) in arguments.iter().enumerate() {
+            if let Some(constant_buffer) = arg.constant_buffer {
+                dynamic_offsets[arg_index] = arg.constant_buffer_offset as _;
+
+                let cached_descriptor_set = self.cbuffer_descriptor_cache.memoize(
+                    arg_index as _,
+                    constant_buffer,
+                    &self.cbuffer_descriptor_set_layouts,
+                );
+
+                if let Some(entry) = cached_descriptor_set {
+                    assert_ne!(entry.descriptor_pool, ash::vk::DescriptorPool::null());
+                    assert_ne!(entry.descriptor_set, ash::vk::DescriptorSet::null());
+                    descriptor_sets.push(entry.descriptor_set);
+                }
+            }
+        }
+
+        if descriptor_sets.len() > 0 {
+            unsafe {
+                self.device.raw.cmd_bind_descriptor_sets(
+                    native,
+                    bind_point,
+                    pipeline_layout,
+                    SET_OFFSET,
+                    &descriptor_sets,
+                    &dynamic_offsets[..descriptor_sets.len()],
                 );
             }
         }

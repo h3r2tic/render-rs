@@ -1,4 +1,4 @@
-use crate::device::{SET_OFFSET, SRV_OFFSET, UAV_OFFSET};
+use crate::device::{CBV_OFFSET, SET_OFFSET, SRV_OFFSET, UAV_OFFSET};
 use crate::raw::device::Device;
 use crate::types::get_image_layout;
 use crate::types::RenderBufferVk;
@@ -15,14 +15,18 @@ use render_core::types::{RenderResourceHandle, RenderResourceStates, RenderResou
 use render_core::utilities::any_as_u8_slice;
 use std::collections::HashMap;
 use std::hash::Hasher;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Default, Copy, Clone)]
-pub struct CachedDescriptorSet {
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct CachedDescriptorSetKey {
     pub set_index: u32,
     pub srv_layout_hash: u64,
     pub uav_layout_hash: u64,
     pub pipeline_state: RenderResourceHandle,
+}
+
+#[derive(Debug, Default, Copy, Clone)]
+pub struct CachedDescriptorSet {
     pub descriptor_pool: ash::vk::DescriptorPool,
     pub descriptor_set: ash::vk::DescriptorSet,
 }
@@ -201,6 +205,7 @@ impl DescriptorSetCache {
         let mut uav_hasher = twox_hash::XxHash32::with_seed(0);
         for uav in &shader_views.uavs {
             let resource = uav.desc.base.resource;
+            // TODO: non-image
             let layout = self.get_descriptor_image_layout(resource, resource_tracker);
             uav_hasher.write(&any_as_u8_slice(&layout));
         }
@@ -209,27 +214,27 @@ impl DescriptorSetCache {
         let mut srv_hasher = twox_hash::XxHash32::with_seed(0);
         for srv in &shader_views.srvs {
             let resource = srv.desc.base.resource;
+            // TODO: non-image
             let layout = self.get_descriptor_image_layout(resource, resource_tracker);
             srv_hasher.write(&any_as_u8_slice(&layout));
         }
         let srv_layout_hash: u64 = srv_hasher.finish();
 
-        // Cache hit?
-        let mut cached_descriptor_set: Option<CachedDescriptorSet> = None;
-        for cache_entry in &shader_views.cached_descriptor_sets {
-            if cache_entry.pipeline_state == pipeline_state
-                && cache_entry.set_index == set_index
-                && cache_entry.srv_layout_hash == srv_layout_hash
-                && cache_entry.uav_layout_hash == uav_layout_hash
-            {
-                // Hit!
-                cached_descriptor_set = Some(cache_entry.clone());
-                break;
-            }
-        }
+        let cache_key = CachedDescriptorSetKey {
+            set_index,
+            srv_layout_hash,
+            uav_layout_hash,
+            pipeline_state,
+        };
 
-        // Miss..
-        if cached_descriptor_set.is_none() {
+        // Cache hit?
+        let cached_descriptor_set: Option<CachedDescriptorSet> =
+            shader_views.cached_descriptor_sets.get(&cache_key).copied();
+
+        if cached_descriptor_set.is_some() {
+            cached_descriptor_set
+        } else {
+            // Miss..
             // Handle case where shader views have at least one UAV or SRV, but the shader itself has
             // none defined (common when debugging and commenting out code to test things)
             if layout_data.combined_layouts.len() == 0 {
@@ -245,13 +250,7 @@ impl DescriptorSetCache {
             }
 
             if let Some(descriptor_layout) = descriptor_layout {
-                let mut descriptor_set = CachedDescriptorSet {
-                    pipeline_state,
-                    set_index,
-                    srv_layout_hash,
-                    uav_layout_hash,
-                    ..Default::default()
-                };
+                let mut descriptor_set = CachedDescriptorSet::default();
 
                 // Create descriptor pool
                 let pool_info = ash::vk::DescriptorPoolCreateInfo::builder()
@@ -281,14 +280,15 @@ impl DescriptorSetCache {
                         .unwrap()
                 }[0];
 
+                let binding_count = shader_views.srvs.len() + shader_views.uavs.len();
+
                 let mut writes: Vec<ash::vk::WriteDescriptorSet> =
-                    Vec::with_capacity(shader_views.srvs.len() + shader_views.uavs.len());
-                let mut texel_buffers: Vec<ash::vk::BufferView> =
-                    Vec::with_capacity(shader_views.srvs.len() + shader_views.uavs.len());
+                    Vec::with_capacity(binding_count);
+                let mut texel_buffers: Vec<ash::vk::BufferView> = Vec::with_capacity(binding_count);
                 let mut buffer_info: Vec<ash::vk::DescriptorBufferInfo> =
-                    Vec::with_capacity(shader_views.srvs.len() + shader_views.uavs.len());
+                    Vec::with_capacity(binding_count);
                 let mut image_info: Vec<ash::vk::DescriptorImageInfo> =
-                    Vec::with_capacity(shader_views.srvs.len() + shader_views.uavs.len());
+                    Vec::with_capacity(binding_count);
 
                 // Update SRV descriptors
                 for srv_index in 0..shader_views.srvs.len() {
@@ -303,8 +303,6 @@ impl DescriptorSetCache {
                     }
 
                     if let Some(layout_info) = layout_info {
-                        let layout = self
-                            .get_descriptor_image_layout(srv.desc.base.resource, resource_tracker);
                         let mut write = ash::vk::WriteDescriptorSet::builder();
 
                         match srv.desc.base.resource.get_type() {
@@ -327,6 +325,11 @@ impl DescriptorSetCache {
                                 }
                             }
                             RenderResourceType::Texture => {
+                                let layout = self.get_descriptor_image_layout(
+                                    srv.desc.base.resource,
+                                    resource_tracker,
+                                );
+
                                 let slot = image_info.len();
                                 image_info.push(ash::vk::DescriptorImageInfo {
                                     image_layout: layout,
@@ -373,8 +376,6 @@ impl DescriptorSetCache {
                     }
 
                     if let Some(layout_info) = layout_info {
-                        let layout = self
-                            .get_descriptor_image_layout(uav.desc.base.resource, resource_tracker);
                         let mut write = ash::vk::WriteDescriptorSet::builder();
 
                         match uav.desc.base.resource.get_type() {
@@ -397,6 +398,11 @@ impl DescriptorSetCache {
                                 }
                             }
                             RenderResourceType::Texture => {
+                                let layout = self.get_descriptor_image_layout(
+                                    uav.desc.base.resource,
+                                    resource_tracker,
+                                );
+
                                 let slot = image_info.len();
                                 image_info.push(ash::vk::DescriptorImageInfo {
                                     image_layout: layout,
@@ -436,18 +442,147 @@ impl DescriptorSetCache {
                     }
                 }
 
-                shader_views.cached_descriptor_sets.push(descriptor_set);
-                cached_descriptor_set = Some(descriptor_set);
+                shader_views
+                    .cached_descriptor_sets
+                    .insert(cache_key, descriptor_set);
+
+                Some(descriptor_set)
             } else {
                 // Handle case where shader views have at least one UAV or SRV, but the shader itself has
                 // none defined (common when debugging and commenting out code to test things)
-                return None;
+                None
             }
         }
-
-        cached_descriptor_set
     }
 }
 
 unsafe impl Send for DescriptorSetCache {}
 unsafe impl Sync for DescriptorSetCache {}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct CachedCbufferDescriptorSetKey {
+    constant_buffer: RenderResourceHandle,
+    set_index: u32,
+}
+
+pub struct CbufferDescriptorSetCache {
+    pub logical_device: Arc<Device>,
+    pub storage: Arc<RenderResourceStorage<Box<dyn RenderResourceBase>>>,
+    pub cache: Mutex<HashMap<CachedCbufferDescriptorSetKey, CachedDescriptorSet>>,
+}
+
+impl CbufferDescriptorSetCache {
+    pub fn new(
+        device: Arc<Device>,
+        storage: Arc<RenderResourceStorage<Box<dyn RenderResourceBase>>>,
+    ) -> Self {
+        Self {
+            logical_device: device,
+            storage,
+            cache: Default::default(),
+        }
+    }
+
+    pub fn memoize(
+        &self,
+        set_index: u32,
+        constant_buffer: RenderResourceHandle,
+        cbuffer_descriptor_set_layouts: &[ash::vk::DescriptorSetLayout],
+    ) -> Option<CachedDescriptorSet> {
+        let cache_key = CachedCbufferDescriptorSetKey {
+            constant_buffer,
+            set_index,
+        };
+
+        let mut cache = self.cache.lock().unwrap();
+
+        // Cache hit?
+        let cached_descriptor_set = cache.get(&cache_key).copied();
+
+        if cached_descriptor_set.is_some() {
+            cached_descriptor_set
+        } else {
+            // Miss..
+
+            let descriptor_layout = cbuffer_descriptor_set_layouts[set_index as usize];
+            let mut descriptor_set = CachedDescriptorSet::default();
+
+            // Create descriptor pool
+            let pool_info = ash::vk::DescriptorPoolCreateInfo::builder()
+                .pool_sizes(&[ash::vk::DescriptorPoolSize {
+                    ty: ash::vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+                    descriptor_count: 1,
+                }])
+                .max_sets(1)
+                .build();
+
+            // TODO: Yeah, this is pretty inefficient :) Render graph also creates
+            // shader views multiple times per frame.
+            let device = self.logical_device.clone();
+            descriptor_set.descriptor_pool = unsafe {
+                device
+                    .device()
+                    .create_descriptor_pool(&pool_info, None)
+                    .unwrap()
+            };
+
+            let allocate_info = ash::vk::DescriptorSetAllocateInfo::builder()
+                .descriptor_pool(descriptor_set.descriptor_pool)
+                .set_layouts(&[descriptor_layout])
+                .build();
+
+            descriptor_set.descriptor_set = unsafe {
+                device
+                    .device()
+                    .allocate_descriptor_sets(&allocate_info)
+                    .unwrap()
+            }[0];
+
+            let binding_index = CBV_OFFSET;
+
+            assert!(constant_buffer.get_type() == RenderResourceType::Buffer);
+
+            let resource_lock = self.storage.get(constant_buffer).unwrap();
+            let resource = resource_lock.read().unwrap();
+            let buffer = resource.downcast_ref::<RenderBufferVk>().unwrap();
+
+            let buffer_info = ash::vk::DescriptorBufferInfo {
+                buffer: buffer.buffer,
+                offset: 0,
+                range: ash::vk::WHOLE_SIZE as u64,
+            };
+
+            let write = ash::vk::WriteDescriptorSet::builder()
+                .buffer_info(std::slice::from_ref(&buffer_info))
+                .dst_set(descriptor_set.descriptor_set)
+                .dst_array_element(0)
+                .dst_binding(binding_index)
+                .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .build();
+
+            unsafe {
+                device
+                    .device()
+                    .update_descriptor_sets(std::slice::from_ref(&write), &[]);
+            }
+
+            cache.insert(cache_key, descriptor_set);
+            Some(descriptor_set)
+        }
+    }
+}
+
+impl Drop for CbufferDescriptorSetCache {
+    fn drop(&mut self) {
+        for (_cache_key, cached_set) in self.cache.lock().unwrap().drain() {
+            unsafe {
+                self.logical_device
+                    .raw
+                    .destroy_descriptor_pool(cached_set.descriptor_pool, None);
+            }
+        }
+    }
+}
+
+unsafe impl Send for CbufferDescriptorSetCache {}
+unsafe impl Sync for CbufferDescriptorSetCache {}

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::descriptors::CachedDescriptorSet;
+use crate::descriptors::{CachedDescriptorSet, CachedDescriptorSetKey};
 use crate::device::{RenderDeviceFrames, RenderDeviceVk};
 use crate::raw::device::Device as RawDevice;
 use crate::raw::fence::Fence;
@@ -18,6 +18,7 @@ use render_core::types::*;
 
 use std::{
     borrow::Cow,
+    collections::HashMap,
     fmt, ptr,
     sync::{Arc, RwLock},
 };
@@ -217,7 +218,7 @@ pub struct RenderShaderViewsVk {
     pub uavs: Vec<UnorderedAccessViewBinding>,
 
     // Lazy-initialized on first bind
-    pub cached_descriptor_sets: Vec<CachedDescriptorSet>,
+    pub cached_descriptor_sets: HashMap<CachedDescriptorSetKey, CachedDescriptorSet>,
 }
 
 impl RenderResourceBase for RenderShaderViewsVk {

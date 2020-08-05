@@ -5,7 +5,8 @@ use crate::allocator::HostLinearAllocator;
 use crate::backend::RenderBackendVk;
 use crate::compile::RenderCompileContext;
 use crate::descriptors::{
-    merge_descriptor_set_layouts, tally_descriptor_pool_sizes, DescriptorSetCache,
+    merge_descriptor_set_layouts, tally_descriptor_pool_sizes, CbufferDescriptorSetCache,
+    DescriptorSetCache,
 };
 use crate::queue::RenderCommandQueueVk;
 use crate::raw::command;
@@ -123,6 +124,7 @@ pub struct RenderDeviceVk {
     cbuffer_descriptor_set_layouts: [ash::vk::DescriptorSetLayout; MAX_SHADER_PARAMETERS],
     pipeline_cache: ash::vk::PipelineCache,
     descriptor_cache: Arc<DescriptorSetCache>,
+    cbuffer_descriptor_cache: Arc<CbufferDescriptorSetCache>,
     global_allocator: Arc<RwLock<vk_mem::Allocator>>,
 }
 
@@ -401,6 +403,8 @@ impl RenderDeviceVk {
 
         let storage = Arc::new(RenderResourceStorage::new());
         let descriptor_cache = Arc::new(DescriptorSetCache::new(device.clone(), storage.clone()));
+        let cbuffer_descriptor_cache =
+            Arc::new(CbufferDescriptorSetCache::new(device.clone(), storage.clone()));
 
         Ok(RenderDeviceVk {
             device_info,
@@ -418,6 +422,7 @@ impl RenderDeviceVk {
             cbuffer_descriptor_set_layouts,
             pipeline_cache,
             descriptor_cache,
+            cbuffer_descriptor_cache,
             global_allocator: Arc::new(RwLock::new(
                 vk_mem::Allocator::new(&vk_mem::AllocatorCreateInfo {
                     physical_device: physical_device.raw,
@@ -570,7 +575,7 @@ impl RenderDevice for RenderDeviceVk {
             }
             RenderResourceType::ShaderViews => {
                 let resource = resource.downcast_mut::<RenderShaderViewsVk>().unwrap();
-                for cached_set in &resource.cached_descriptor_sets {
+                for (cache_key, cached_set) in &resource.cached_descriptor_sets {
                     // TODO: Don't free the descriptor, just the pool, until the pool is no longer tied to this object
                     unsafe {
                         raw_device.destroy_descriptor_pool(cached_set.descriptor_pool, None);
@@ -1348,12 +1353,13 @@ impl RenderDevice for RenderDeviceVk {
         let mut remaps: Vec<BindingSetRemap> = Vec::new();
         match spirv_reflect::ShaderModule::load_u8_data(&desc.shader_data) {
             Ok(mut reflect_module) => {
-                let mut cbv_count = 0;
                 let mut srv_count = 0;
                 let mut smp_count = 0;
                 let mut uav_count = 0;
 
                 let descriptor_sets = reflect_module.enumerate_descriptor_sets(None).unwrap();
+                trace!("Shader descriptor sets: {:#?}", descriptor_sets);
+
                 for set_index in 0..descriptor_sets.len() {
                     let set = &descriptor_sets[set_index];
                     for binding_index in 0..set.bindings.len() {
@@ -1368,13 +1374,14 @@ impl RenderDevice for RenderDeviceVk {
 								remaps.push(BindingSetRemap {
 									binding_index: binding_index as u32,
 									old_binding: binding.binding,
-									new_binding: cbv_count + CBV_OFFSET + set_index as u32,
+									new_binding: binding.binding,
 									old_set: set_index as u32,
 									new_set: SET_OFFSET + set_index as u32,
-								});
-                                assert!(SET_OFFSET as usize + set_index >= descriptor_sets.len()); // Make sure we don't use more spaces/sets than 5
-                                cbv_count += 1;
-							},
+                                });
+                                
+                                // Make sure we don't use more spaces/sets than MAX_SHADER_PARAMETERS
+                                assert!(SET_OFFSET as usize + set_index >= descriptor_sets.len());
+                            },
 							spirv_reflect::types::resource::ReflectResourceType::ShaderResourceView => {
 								remaps.push(BindingSetRemap {
 									binding_index: binding_index as u32,
@@ -1767,7 +1774,7 @@ impl RenderDevice for RenderDeviceVk {
                 name: debug_name.to_string().into(),
                 srvs,
                 uavs,
-                cached_descriptor_sets: Vec::new(),
+                cached_descriptor_sets: Default::default(),
             })));
 
         self.storage.put(handle, resource)?;
@@ -3063,6 +3070,8 @@ impl RenderDevice for RenderDeviceVk {
             let mut compile_context = RenderCompileContext::new(
                 self.logical_device.clone(),
                 self.descriptor_cache.clone(),
+                self.cbuffer_descriptor_cache.clone(),
+                self.cbuffer_descriptor_set_layouts,
                 self.storage.clone(),
                 queue.clone(),
             );
@@ -3085,6 +3094,8 @@ impl RenderDevice for RenderDeviceVk {
             let mut compile_context = RenderCompileContext::new(
                 self.logical_device.clone(),
                 self.descriptor_cache.clone(),
+                self.cbuffer_descriptor_cache.clone(),
+                self.cbuffer_descriptor_set_layouts,
                 self.storage.clone(),
                 queue.clone(),
             );

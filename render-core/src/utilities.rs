@@ -13,7 +13,7 @@ pub fn divide_up_multiple_usize(val: usize, align: usize) -> usize {
 }
 
 #[inline(always)]
-pub fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
+pub fn any_as_u8_slice<T: Sized + Copy>(p: &T) -> &[u8] {
     unsafe { slice::from_raw_parts((p as *const T) as *const u8, mem::size_of::<T>()) }
 }
 
