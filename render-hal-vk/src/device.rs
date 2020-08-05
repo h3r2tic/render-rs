@@ -3084,7 +3084,7 @@ impl RenderDevice for RenderDeviceVk {
     fn compile_command_lists(
         &self,
         handle: RenderResourceHandle,
-        command_lists: &[RenderCommandList],
+        command_lists: &[&RenderCommandList],
     ) -> Result<()> {
         assert_eq!(handle.get_type(), RenderResourceType::CommandList);
         let resource_lock = self.storage.get(handle)?;

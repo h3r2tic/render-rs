@@ -262,7 +262,7 @@ pub trait RenderDevice: fmt::Debug {
     fn compile_command_lists(
         &self,
         handle: RenderResourceHandle,
-        command_lists: &[RenderCommandList],
+        command_lists: &[&RenderCommandList],
     ) -> Result<()>;
 
     // Present Management

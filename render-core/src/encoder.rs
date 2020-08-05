@@ -16,8 +16,8 @@ pub struct RenderCommandList<'a> {
     allocator: LinearAllocator<'a>,
     handles: Arc<RwLock<RenderResourceHandleAllocator>>,
     queue_type: RenderCommandQueueType,
-    draw_state: RenderDrawState,
-    draw_state_cache: Option<RenderDrawState>,
+    //draw_state: RenderDrawState,
+    //draw_state_cache: Option<RenderDrawState>,
     render_pass_active: bool,
 }
 

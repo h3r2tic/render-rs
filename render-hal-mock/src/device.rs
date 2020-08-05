@@ -575,7 +575,7 @@ impl RenderDevice for RenderDeviceMock {
     fn compile_command_lists(
         &self,
         handle: RenderResourceHandle,
-        command_lists: &[RenderCommandList],
+        command_lists: &[&RenderCommandList],
     ) -> Result<()> {
         Ok(())
     }
