@@ -501,6 +501,28 @@ pub struct RenderShaderArgument {
     pub constant_buffer_offset: usize,
 }
 
+pub trait IntoConstantBufferWithOffset {
+    fn into_constant_buffer_with_offset(self) -> (RenderResourceHandle, usize);
+}
+
+impl RenderShaderArgument {
+    pub fn new(shader_views: RenderResourceHandle) -> Self {
+        Self {
+            shader_views: Some(shader_views),
+            constant_buffer: None,
+            constant_buffer_offset: 0,
+        }
+    }
+
+    pub fn constants(mut self, constants: impl IntoConstantBufferWithOffset) -> Self {
+        let (constant_buffer, constant_buffer_offset) =
+            constants.into_constant_buffer_with_offset();
+        self.constant_buffer = Some(constant_buffer);
+        self.constant_buffer_offset = constant_buffer_offset;
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RenderShaderSignatureDesc {
     pub parameters: [RenderShaderParameter; MAX_SHADER_PARAMETERS],
