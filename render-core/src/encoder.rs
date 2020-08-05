@@ -32,10 +32,15 @@ impl<'a> RenderCommandList<'a> {
             allocator: LinearAllocator::new(size_bytes),
             handles: Arc::clone(&handles),
             queue_type: RenderCommandQueueType::NONE,
-            draw_state: Default::default(),
-            draw_state_cache: None,
+            //draw_state: Default::default(),
+            //draw_state_cache: None,
             render_pass_active: false,
         })
+    }
+
+    pub fn reset(&mut self) {
+        self.commands.clear();
+        self.allocator.rewind(0).unwrap();
     }
 
     #[inline(always)]
