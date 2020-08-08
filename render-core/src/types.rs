@@ -379,6 +379,7 @@ bitflags! {
         const UNORDERED_ACCESS = 0x0100;
         const CROSS_DEVICE = 0x0200;
         const ACCELERATION_STRUCTURE = 0x0400;
+        const DEVICE_ADDRESS = 0x0800;
     }
 }
 

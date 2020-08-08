@@ -37,7 +37,11 @@ impl SwapChain {
             ash::vk::ExtScalarBlockLayoutFn::name().to_str().unwrap(),
             ash::vk::ExtDescriptorIndexingFn::name().to_str().unwrap(),
             // TODO: feature gate
-            ash::extensions::nv::RayTracing::name().to_str().unwrap(),
+            ash::extensions::khr::RayTracing::name().to_str().unwrap(),
+            ash::vk::KhrPipelineLibraryFn::name().to_str().unwrap(), // rt dep
+            ash::vk::KhrDeferredHostOperationsFn::name() // rt dep
+                .to_str()
+                .unwrap(),
             //vk::ExtFragmentShaderInterlockFn::name().to_str().unwrap(),
         ]
         //vec![ash::extensions::Swapchain::name().to_str().unwrap()]

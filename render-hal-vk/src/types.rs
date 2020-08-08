@@ -375,7 +375,7 @@ impl RenderResourceBase for RenderRayTracingGeometryVk {
 pub struct RenderRayTracingBottomAccelerationVk {
     pub name: Cow<'static, str>,
     pub allocation: vk_mem::Allocation,
-    pub handle: ash::vk::AccelerationStructureNV,
+    pub handle: ash::vk::AccelerationStructureKHR,
 }
 
 impl RenderResourceBase for RenderRayTracingBottomAccelerationVk {
@@ -394,7 +394,7 @@ impl RenderResourceBase for RenderRayTracingBottomAccelerationVk {
 pub struct RenderRayTracingTopAccelerationVk {
     pub name: Cow<'static, str>,
     pub allocation: vk_mem::Allocation,
-    pub handle: ash::vk::AccelerationStructureNV,
+    pub handle: ash::vk::AccelerationStructureKHR,
 }
 
 impl RenderResourceBase for RenderRayTracingTopAccelerationVk {
@@ -413,16 +413,13 @@ impl RenderResourceBase for RenderRayTracingTopAccelerationVk {
 pub struct RenderRayTracingShaderTableVk {
     pub name: Cow<'static, str>,
     pub raygen_shader_binding_table_buffer: Option<crate::device::BufferResource>,
-    pub raygen_shader_binding_offset: ash::vk::DeviceSize,
+    pub raygen_shader_binding_table: ash::vk::StridedBufferRegionKHR,
     pub miss_shader_binding_table_buffer: Option<crate::device::BufferResource>,
-    pub miss_shader_binding_offset: ash::vk::DeviceSize,
-    pub miss_shader_binding_stride: ash::vk::DeviceSize,
+    pub miss_shader_binding_table: ash::vk::StridedBufferRegionKHR,
     pub hit_shader_binding_table_buffer: Option<crate::device::BufferResource>,
-    pub hit_shader_binding_offset: ash::vk::DeviceSize,
-    pub hit_shader_binding_stride: ash::vk::DeviceSize,
+    pub hit_shader_binding_table: ash::vk::StridedBufferRegionKHR,
     pub callable_shader_binding_table_buffer: Option<crate::device::BufferResource>,
-    pub callable_shader_binding_offset: ash::vk::DeviceSize,
-    pub callable_shader_binding_stride: ash::vk::DeviceSize,
+    pub callable_shader_binding_table: ash::vk::StridedBufferRegionKHR,
 }
 
 impl RenderResourceBase for RenderRayTracingShaderTableVk {

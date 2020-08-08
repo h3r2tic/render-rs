@@ -27,7 +27,8 @@ use crate::raw::surface::Surface as RawSurface;
 use crate::raw::swap_chain::{SwapChain, SwapChainConfig};
 use crate::shader_views::{ShaderResourceViewBinding, UnorderedAccessViewBinding};
 use crate::types::*;
-use ash::version::{DeviceV1_0, DeviceV1_1, InstanceV1_1};
+use ash::extensions::khr;
+use ash::version::{DeviceV1_0, DeviceV1_1, DeviceV1_2, InstanceV1_1};
 use ash::vk::Handle;
 use ash::{self, Device};
 use digest::Digest;
@@ -76,9 +77,6 @@ use ash::extensions::khr::Win32Surface;
 
 #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
 use ash::extensions::khr::XlibSurface;
-
-// TODO: feature-gate
-use ash::extensions::nv;
 
 pub const MAX_GPU_FRAMES: usize = 2;
 
@@ -129,8 +127,8 @@ pub struct RenderDeviceVk {
     cbuffer_descriptor_cache: Arc<CbufferDescriptorSetCache>,
     global_allocator: Arc<RwLock<vk_mem::Allocator>>,
 
-    ray_tracing: Arc<nv::RayTracing>,
-    ray_tracing_properties: ash::vk::PhysicalDeviceRayTracingPropertiesNV,
+    ray_tracing: Arc<khr::RayTracing>,
+    ray_tracing_properties: ash::vk::PhysicalDeviceRayTracingPropertiesKHR,
 }
 
 impl fmt::Debug for RenderDeviceVk {
@@ -303,9 +301,14 @@ impl RenderDeviceVk {
 
         let mut ray_tracing_features = ash::vk::PhysicalDeviceRayTracingFeaturesKHR::default();
         ray_tracing_features.ray_tracing = 1;
+        ray_tracing_features.ray_query = 1;
 
-        features2.p_next =
-            &mut ray_tracing_features as *mut ash::vk::PhysicalDeviceRayTracingFeaturesKHR as _;
+        let mut get_buffer_device_address_features =
+            ash::vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::default();
+        get_buffer_device_address_features.buffer_device_address = 1;
+
+        ray_tracing_features.p_next = &mut get_buffer_device_address_features as *mut _ as _;
+        features2.p_next = &mut ray_tracing_features as *mut _ as _;
 
         let mut raw_device = RawDevice::create(
             Arc::clone(&physical_device),
@@ -427,9 +430,9 @@ impl RenderDeviceVk {
         ));
 
         // TODO: feature-gate
-        let ray_tracing = Arc::new(nv::RayTracing::new(&**instance, &device.raw));
+        let ray_tracing = Arc::new(khr::RayTracing::new(&**instance, &device.raw));
         let ray_tracing_properties =
-            unsafe { nv::RayTracing::get_properties(&**instance, physical_device.raw) };
+            unsafe { khr::RayTracing::get_properties(&**instance, physical_device.raw) };
 
         Ok(RenderDeviceVk {
             device_info,
@@ -453,6 +456,9 @@ impl RenderDeviceVk {
                     physical_device: physical_device.raw,
                     device: (*raw_device).clone(),
                     instance: (*instance).get_instance().clone(),
+                    flags: unsafe {
+                        vk_mem::AllocatorCreateFlags::from_bits_unchecked(0x00000020u32)
+                    }, // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT
                     ..Default::default()
                 })
                 .unwrap(),
@@ -992,6 +998,10 @@ impl RenderDevice for RenderDeviceVk {
 
         if desc.bind_flags.contains(RenderBindFlags::STREAM_OUTPUT) {
             usage |= ash::vk::BufferUsageFlags::STORAGE_BUFFER;
+        }
+
+        if desc.bind_flags.contains(RenderBindFlags::DEVICE_ADDRESS) {
+            usage |= ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS;
         }
 
         let supported_states = get_resource_states(desc.bind_flags)
@@ -1857,6 +1867,8 @@ impl RenderDevice for RenderDeviceVk {
             debug_name, desc
         );
 
+        let vk_device = self.logical_device.device();
+
         // Create instance buffer
 
         let instances: Vec<GeometryInstance> = desc
@@ -1869,9 +1881,11 @@ impl RenderDevice for RenderDeviceVk {
                     .unwrap(); // TODO: error
 
                 let accel_handle = unsafe {
-                    self.ray_tracing
-                        .get_acceleration_structure_handle(bottom_as.handle)
-                        .unwrap()
+                    self.ray_tracing.get_acceleration_structure_device_address(
+                        &ash::vk::AccelerationStructureDeviceAddressInfoKHR::builder()
+                            .acceleration_structure(bottom_as.handle)
+                            .build(),
+                    )
                 };
 
                 let transform: [f32; 12] = [
@@ -1885,8 +1899,8 @@ impl RenderDevice for RenderDeviceVk {
                     0, /* instance id */
                     0xff,
                     0,
-                    ash::vk::GeometryInstanceFlagsNV::TRIANGLE_FACING_CULL_DISABLE
-                        | ash::vk::GeometryInstanceFlagsNV::FORCE_OPAQUE,
+                    ash::vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE
+                        | ash::vk::GeometryInstanceFlagsKHR::FORCE_OPAQUE,
                     accel_handle,
                 )
             })
@@ -1897,7 +1911,8 @@ impl RenderDevice for RenderDeviceVk {
         let instance_buffer_size = std::mem::size_of::<GeometryInstance>() * instances.len();
         let mut instance_buffer = BufferResource::new(
             instance_buffer_size as u64,
-            ash::vk::BufferUsageFlags::RAY_TRACING_NV,
+            ash::vk::BufferUsageFlags::RAY_TRACING_KHR
+                | ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             ash::vk::MemoryPropertyFlags::HOST_VISIBLE
                 | ash::vk::MemoryPropertyFlags::HOST_COHERENT,
             self.logical_device.clone(),
@@ -1907,57 +1922,31 @@ impl RenderDevice for RenderDeviceVk {
 
         // Create top-level acceleration structure
 
-        let accel_info = ash::vk::AccelerationStructureCreateInfoNV::builder()
-            .info(
-                ash::vk::AccelerationStructureInfoNV::builder()
-                    .ty(ash::vk::AccelerationStructureTypeNV::TOP_LEVEL)
-                    .instance_count(instances.len() as u32)
-                    .build(),
-            )
+        let geometry_create = ash::vk::AccelerationStructureCreateGeometryTypeInfoKHR::builder()
+            .geometry_type(ash::vk::GeometryTypeKHR::INSTANCES)
+            .max_primitive_count(instances.len() as _);
+
+        let accel_info = ash::vk::AccelerationStructureCreateInfoKHR::builder()
+            .ty(ash::vk::AccelerationStructureTypeKHR::TOP_LEVEL)
+            .geometry_infos(std::slice::from_ref(&geometry_create))
             .build();
 
         unsafe {
-            let top_as = self
-                .ray_tracing
-                .create_acceleration_structure(&accel_info, None)
-                .unwrap();
-
-            let memory_requirements: ash::vk::MemoryRequirements2 = self
-                .ray_tracing
-                .get_acceleration_structure_memory_requirements(
-                    &ash::vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
-                        .acceleration_structure(top_as)
-                        .ty(ash::vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
-                        .build(),
-                );
-
-            let (as_memory, as_memory_info) = self
+            let (top_as, as_memory, as_memory_info) = self
                 .global_allocator
                 .write()
                 .unwrap()
-                .allocate_memory(
-                    &memory_requirements.memory_requirements,
-                    &vk_mem::AllocationCreateInfo::default(),
-                )
-                .unwrap();
-
-            self.ray_tracing
-                .bind_acceleration_structure_memory(&[
-                    ash::vk::BindAccelerationStructureMemoryInfoNV::builder()
-                        .acceleration_structure(top_as)
-                        .memory(as_memory_info.get_device_memory())
-                        .memory_offset(as_memory_info.get_offset() as _)
-                        .build(),
-                ])
+                .create_acceleration_structure(&accel_info, &Default::default())
                 .unwrap();
 
             let scratch_buffer_size = {
                 let requirements = self
                     .ray_tracing
                     .get_acceleration_structure_memory_requirements(
-                    &ash::vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+                    &ash::vk::AccelerationStructureMemoryRequirementsInfoKHR::builder()
                         .acceleration_structure(top_as)
-                        .ty(ash::vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
+                        .ty(ash::vk::AccelerationStructureMemoryRequirementsTypeKHR::BUILD_SCRATCH)
+                        .build_type(ash::vk::AccelerationStructureBuildTypeKHR::DEVICE)
                         .build(),
                 );
                 requirements.memory_requirements.size
@@ -1967,47 +1956,70 @@ impl RenderDevice for RenderDeviceVk {
 
             let scratch_buffer = BufferResource::new(
                 scratch_buffer_size,
-                ash::vk::BufferUsageFlags::RAY_TRACING_NV,
+                ash::vk::BufferUsageFlags::RAY_TRACING_KHR
+                    | ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                 ash::vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 self.logical_device.clone(),
                 self.global_allocator.clone(),
             );
-            let vk_device = self.logical_device.device();
             let command_list = self.present_command_list.borrow_mut().open()?;
 
             {
-                let memory_barrier = ash::vk::MemoryBarrier::builder()
-                    .src_access_mask(
-                        ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_NV
-                            | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_NV,
-                    )
-                    .dst_access_mask(
-                        ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_NV
-                            | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_NV,
-                    )
+                let geometry = ash::vk::AccelerationStructureGeometryKHR::builder()
+                    .geometry_type(ash::vk::GeometryTypeKHR::INSTANCES)
+                    .geometry(ash::vk::AccelerationStructureGeometryDataKHR {
+                        instances: ash::vk::AccelerationStructureGeometryInstancesDataKHR::builder(
+                        )
+                        .data(ash::vk::DeviceOrHostAddressConstKHR {
+                            device_address: vk_device.get_buffer_device_address(
+                                &ash::vk::BufferDeviceAddressInfo::builder()
+                                    .buffer(instance_buffer.buffer),
+                            ),
+                        })
+                        .build(),
+                    })
                     .build();
+                let geometry_p: *const _ = &geometry;
+
+                let geometry_info = ash::vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+                    .ty(ash::vk::AccelerationStructureTypeKHR::TOP_LEVEL)
+                    .dst_acceleration_structure(top_as)
+                    .geometry_count(1)
+                    .geometries(&geometry_p)
+                    .scratch_data(ash::vk::DeviceOrHostAddressKHR {
+                        device_address: vk_device.get_buffer_device_address(
+                            &ash::vk::BufferDeviceAddressInfo::builder()
+                                .buffer(scratch_buffer.buffer),
+                        ),
+                    })
+                    .build();
+
+                let offset_infos = ash::vk::AccelerationStructureBuildOffsetInfoKHR::builder()
+                    .primitive_count(instances.len() as _)
+                    .build();
+                let offset_infos = std::slice::from_ref(&offset_infos);
 
                 self.ray_tracing.cmd_build_acceleration_structure(
                     *command_list,
-                    &ash::vk::AccelerationStructureInfoNV::builder()
-                        .ty(ash::vk::AccelerationStructureTypeNV::TOP_LEVEL)
-                        .instance_count(desc.instances.len() as u32)
-                        .build(),
-                    instance_buffer.buffer,
-                    0,
-                    false,
-                    top_as,
-                    ash::vk::AccelerationStructureNV::null(),
-                    scratch_buffer.buffer,
-                    0,
+                    std::slice::from_ref(&geometry_info),
+                    std::slice::from_ref(&offset_infos),
                 );
 
                 vk_device.cmd_pipeline_barrier(
                     *command_list,
-                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV,
-                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV,
+                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
                     ash::vk::DependencyFlags::empty(),
-                    &[memory_barrier],
+                    &[ash::vk::MemoryBarrier::builder()
+                        .src_access_mask(
+                            ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR
+                                | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR,
+                        )
+                        .dst_access_mask(
+                            ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR
+                                | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR,
+                        )
+                        .build()],
                     &[],
                     &[],
                 );
@@ -2055,172 +2067,109 @@ impl RenderDevice for RenderDeviceVk {
             debug_name, desc
         );
 
-        /*#[repr(C)]
-        #[derive(Clone, Debug, Copy)]
-        struct Vertex {
-            pos: [f32; 3],
-        }
+        let vk_device = self.logical_device.device();
 
-        let vertices = [
-            Vertex {
-                pos: [-0.5, -0.5, 0.0],
-            },
-            Vertex {
-                pos: [0.0, 0.5, 0.0],
-            },
-            Vertex {
-                pos: [0.5, -0.5, 0.0],
-            },
-        ];
+        let geometries_type_info: Vec<ash::vk::AccelerationStructureCreateGeometryTypeInfoKHR> =
+            desc.geometries
+                .iter()
+                .map(|desc| {
+                    assert!(
+                        desc.parts.len() == 1,
+                        "multiple ray tracing geometry parts aren't supported yet"
+                    );
 
-        let vertex_count = vertices.len();
-        let vertex_stride = std::mem::size_of::<Vertex>();
+                    ash::vk::AccelerationStructureCreateGeometryTypeInfoKHR::builder()
+                        .geometry_type(ash::vk::GeometryTypeKHR::TRIANGLES)
+                        .vertex_format(convert_format(desc.vertex_format, false))
+                        .max_primitive_count(desc.parts[0].index_count / 3)
+                        .max_vertex_count(
+                            (desc.vertex_buffer.size / desc.vertex_buffer.stride as usize) as _,
+                        )
+                        .index_type(ash::vk::IndexType::UINT32)
+                        .build()
+                })
+                .collect();
 
-        let vertex_buffer_size = vertex_stride * vertex_count;
-        let mut vertex_buffer = BufferResource::new(
-            vertex_buffer_size as u64,
-            ash::vk::BufferUsageFlags::VERTEX_BUFFER,
-            ash::vk::MemoryPropertyFlags::HOST_VISIBLE
-                | ash::vk::MemoryPropertyFlags::HOST_COHERENT,
-            self.logical_device.clone(),
-            self.global_allocator.clone(),
-        );
-        vertex_buffer.store(&vertices);
-
-        let indices = [0u16, 1, 2];
-        let index_count = indices.len();
-        let index_buffer_size = std::mem::size_of::<u16>() * index_count;
-        let mut index_buffer = BufferResource::new(
-            index_buffer_size as u64,
-            ash::vk::BufferUsageFlags::INDEX_BUFFER,
-            ash::vk::MemoryPropertyFlags::HOST_VISIBLE
-                | ash::vk::MemoryPropertyFlags::HOST_COHERENT,
-            self.logical_device.clone(),
-            self.global_allocator.clone(),
-        );
-        index_buffer.store(&indices);
-
-        let geometries = vec![ash::vk::GeometryNV::builder()
-            .geometry_type(ash::vk::GeometryTypeNV::TRIANGLES)
-            .geometry(
-                ash::vk::GeometryDataNV::builder()
-                    .triangles(
-                        ash::vk::GeometryTrianglesNV::builder()
-                            .vertex_data(vertex_buffer.buffer)
-                            .vertex_offset(0)
-                            .vertex_count(vertex_count as u32)
-                            .vertex_stride(vertex_stride as u64)
-                            .vertex_format(ash::vk::Format::R32G32B32_SFLOAT)
-                            .index_data(index_buffer.buffer)
-                            .index_offset(0)
-                            .index_count(index_count as u32)
-                            .index_type(ash::vk::IndexType::UINT16)
-                            .build(),
-                    )
-                    .build(),
-            )
-            .flags(ash::vk::GeometryFlagsNV::OPAQUE)
-            .build()];*/
-
-        let geometries: Result<Vec<ash::vk::GeometryNV>> = desc
+        let geometries: Result<Vec<ash::vk::AccelerationStructureGeometryKHR>> = desc
             .geometries
             .iter()
-            .map(|desc| -> Result<ash::vk::GeometryNV> {
-                assert!(
-                    desc.parts.len() == 1,
-                    "multiple ray tracing geometry parts aren't supported yet"
-                );
-                let part: RayTracingGeometryPart = desc.parts[0];
+            .map(
+                |desc| -> Result<ash::vk::AccelerationStructureGeometryKHR> {
+                    let part: RayTracingGeometryPart = desc.parts[0];
 
-                assert_ne!(desc.vertex_buffer.resource, desc.index_buffer.resource);
-                let vertex_buffer: &RenderBufferVk =
-                    &*self.storage.get_typed(desc.vertex_buffer.resource)?;
-                let index_buffer: &RenderBufferVk =
-                    &*self.storage.get_typed(desc.index_buffer.resource)?;
+                    assert_ne!(desc.vertex_buffer.resource, desc.index_buffer.resource);
+                    let vertex_buffer: &RenderBufferVk =
+                        &*self.storage.get_typed(desc.vertex_buffer.resource)?;
+                    let index_buffer: &RenderBufferVk =
+                        &*self.storage.get_typed(desc.index_buffer.resource)?;
 
-                let geometry = ash::vk::GeometryNV::builder()
-                    .geometry_type(ash::vk::GeometryTypeNV::TRIANGLES)
-                    .geometry(
-                        ash::vk::GeometryDataNV::builder()
-                            .triangles(
-                                ash::vk::GeometryTrianglesNV::builder()
-                                    .vertex_data(vertex_buffer.buffer)
-                                    .vertex_offset(desc.vertex_buffer.offset as _)
-                                    .vertex_count(
-                                        (desc.vertex_buffer.size
-                                            / desc.vertex_buffer.stride as usize)
-                                            as _,
-                                    )
+                    let geometry = ash::vk::AccelerationStructureGeometryKHR::builder()
+                        .geometry_type(ash::vk::GeometryTypeKHR::TRIANGLES)
+                        .geometry(ash::vk::AccelerationStructureGeometryDataKHR {
+                            triangles:
+                                ash::vk::AccelerationStructureGeometryTrianglesDataKHR::builder()
+                                    .vertex_data(ash::vk::DeviceOrHostAddressConstKHR {
+                                        device_address: unsafe {
+                                            vk_device.get_buffer_device_address(
+                                                &ash::vk::BufferDeviceAddressInfo::builder()
+                                                    .buffer(vertex_buffer.buffer),
+                                            ) + desc.vertex_buffer.offset as u64
+                                        },
+                                    })
                                     .vertex_stride(desc.vertex_buffer.stride as _)
                                     .vertex_format(convert_format(desc.vertex_format, false))
-                                    .index_data(index_buffer.buffer)
-                                    .index_offset(part.index_offset as _)
-                                    .index_count(part.index_count)
+                                    .index_data(ash::vk::DeviceOrHostAddressConstKHR {
+                                        device_address: unsafe {
+                                            vk_device.get_buffer_device_address(
+                                                &ash::vk::BufferDeviceAddressInfo::builder()
+                                                    .buffer(index_buffer.buffer),
+                                            ) + desc.index_buffer.offset as u64
+                                        },
+                                    })
                                     .index_type(ash::vk::IndexType::UINT32) // TODO
                                     .build(),
-                            )
-                            .build(),
-                    )
-                    .flags(ash::vk::GeometryFlagsNV::OPAQUE)
-                    .build();
+                        })
+                        .flags(ash::vk::GeometryFlagsKHR::OPAQUE)
+                        .build();
 
-                Ok(geometry)
-            })
+                    Ok(geometry)
+                },
+            )
             .collect();
         let geometries = geometries?;
 
-        let accel_info = ash::vk::AccelerationStructureCreateInfoNV::builder()
-            .info(
-                ash::vk::AccelerationStructureInfoNV::builder()
-                    .ty(ash::vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
-                    .geometries(&geometries)
-                    .flags(ash::vk::BuildAccelerationStructureFlagsNV::PREFER_FAST_TRACE)
-                    .build(),
-            )
+        let offset_infos: Vec<ash::vk::AccelerationStructureBuildOffsetInfoKHR> = desc
+            .geometries
+            .iter()
+            .map(|desc| {
+                ash::vk::AccelerationStructureBuildOffsetInfoKHR::builder()
+                    .primitive_count(desc.parts[0].index_count / 3)
+                    .build()
+            })
+            .collect();
+
+        let accel_info = ash::vk::AccelerationStructureCreateInfoKHR::builder()
+            .ty(ash::vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+            .geometry_infos(&geometries_type_info)
+            .flags(ash::vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
             .build();
 
         unsafe {
-            let bottom_as = self
-                .ray_tracing
-                .create_acceleration_structure(&accel_info, None)
-                .unwrap();
-
-            let memory_requirements: ash::vk::MemoryRequirements2 = self
-                .ray_tracing
-                .get_acceleration_structure_memory_requirements(
-                    &ash::vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
-                        .acceleration_structure(bottom_as)
-                        .ty(ash::vk::AccelerationStructureMemoryRequirementsTypeNV::OBJECT)
-                        .build(),
-                );
-
-            let (as_memory, as_memory_info) = self
+            let (bottom_as, as_memory, as_memory_info) = self
                 .global_allocator
                 .write()
                 .unwrap()
-                .allocate_memory(
-                    &memory_requirements.memory_requirements,
-                    &vk_mem::AllocationCreateInfo::default(),
-                )
-                .unwrap();
-
-            self.ray_tracing
-                .bind_acceleration_structure_memory(&[
-                    ash::vk::BindAccelerationStructureMemoryInfoNV::builder()
-                        .acceleration_structure(bottom_as)
-                        .memory(as_memory_info.get_device_memory())
-                        .memory_offset(as_memory_info.get_offset() as _)
-                        .build(),
-                ])
+                .create_acceleration_structure(&accel_info, &Default::default())
                 .unwrap();
 
             let scratch_buffer_size = {
                 let requirements = self
                     .ray_tracing
                     .get_acceleration_structure_memory_requirements(
-                    &ash::vk::AccelerationStructureMemoryRequirementsInfoNV::builder()
+                    &ash::vk::AccelerationStructureMemoryRequirementsInfoKHR::builder()
                         .acceleration_structure(bottom_as)
-                        .ty(ash::vk::AccelerationStructureMemoryRequirementsTypeNV::BUILD_SCRATCH)
+                        .ty(ash::vk::AccelerationStructureMemoryRequirementsTypeKHR::BUILD_SCRATCH)
+                        .build_type(ash::vk::AccelerationStructureBuildTypeKHR::DEVICE)
                         .build(),
                 );
                 requirements.memory_requirements.size
@@ -2230,48 +2179,53 @@ impl RenderDevice for RenderDeviceVk {
 
             let scratch_buffer = BufferResource::new(
                 scratch_buffer_size,
-                ash::vk::BufferUsageFlags::RAY_TRACING_NV,
+                ash::vk::BufferUsageFlags::RAY_TRACING_KHR
+                    | ash::vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                 ash::vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 self.logical_device.clone(),
                 self.global_allocator.clone(),
             );
-            let vk_device = self.logical_device.device();
             let command_list = self.present_command_list.borrow_mut().open()?;
 
             {
-                let memory_barrier = ash::vk::MemoryBarrier::builder()
-                    .src_access_mask(
-                        ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_NV
-                            | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_NV,
-                    )
-                    .dst_access_mask(
-                        ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_NV
-                            | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_NV,
-                    )
+                let geometries_p: *const ash::vk::AccelerationStructureGeometryKHR =
+                    geometries.as_ptr();
+
+                let geometry_info = ash::vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+                    .ty(ash::vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+                    .dst_acceleration_structure(bottom_as)
+                    .flags(ash::vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+                    .geometry_count(geometries.len() as _)
+                    .geometries(&geometries_p)
+                    .scratch_data(ash::vk::DeviceOrHostAddressKHR {
+                        device_address: vk_device.get_buffer_device_address(
+                            &ash::vk::BufferDeviceAddressInfo::builder()
+                                .buffer(scratch_buffer.buffer),
+                        ),
+                    })
                     .build();
 
                 self.ray_tracing.cmd_build_acceleration_structure(
                     *command_list,
-                    &ash::vk::AccelerationStructureInfoNV::builder()
-                        .ty(ash::vk::AccelerationStructureTypeNV::BOTTOM_LEVEL)
-                        .geometries(&geometries)
-                        .flags(ash::vk::BuildAccelerationStructureFlagsNV::PREFER_FAST_TRACE)
-                        .build(),
-                    ash::vk::Buffer::null(),
-                    0,
-                    false,
-                    bottom_as,
-                    ash::vk::AccelerationStructureNV::null(),
-                    scratch_buffer.buffer,
-                    0,
+                    std::slice::from_ref(&geometry_info),
+                    std::slice::from_ref(&offset_infos.as_slice()),
                 );
 
                 vk_device.cmd_pipeline_barrier(
                     *command_list,
-                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV,
-                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_NV,
+                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
+                    ash::vk::PipelineStageFlags::ACCELERATION_STRUCTURE_BUILD_KHR,
                     ash::vk::DependencyFlags::empty(),
-                    &[memory_barrier],
+                    &[ash::vk::MemoryBarrier::builder()
+                        .src_access_mask(
+                            ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR
+                                | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR,
+                        )
+                        .dst_access_mask(
+                            ash::vk::AccessFlags::ACCELERATION_STRUCTURE_READ_KHR
+                                | ash::vk::AccessFlags::ACCELERATION_STRUCTURE_WRITE_KHR,
+                        )
+                        .build()],
                     &[],
                     &[],
                 );
@@ -2336,20 +2290,22 @@ impl RenderDevice for RenderDeviceVk {
                         .bindings(&[
                             ash::vk::DescriptorSetLayoutBinding::builder()
                                 .descriptor_count(1)
-                                .descriptor_type(ash::vk::DescriptorType::ACCELERATION_STRUCTURE_NV)
-                                .stage_flags(ash::vk::ShaderStageFlags::RAYGEN_NV)
+                                .descriptor_type(
+                                    ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+                                )
+                                .stage_flags(ash::vk::ShaderStageFlags::RAYGEN_KHR)
                                 .binding(0)
                                 .build(),
                             ash::vk::DescriptorSetLayoutBinding::builder()
                                 .descriptor_count(1)
                                 .descriptor_type(ash::vk::DescriptorType::STORAGE_IMAGE)
-                                .stage_flags(ash::vk::ShaderStageFlags::RAYGEN_NV)
+                                .stage_flags(ash::vk::ShaderStageFlags::RAYGEN_KHR)
                                 .binding(1)
                                 .build(),
                             /*ash::vk::DescriptorSetLayoutBinding::builder()
                             .descriptor_count(3)
                             .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
-                            .stage_flags(ash::vk::ShaderStageFlags::CLOSEST_HIT_NV)
+                            .stage_flags(ash::vk::ShaderStageFlags::CLOSEST_HIT_KHR)
                             .binding(2)
                             .build(),*/
                         ])
@@ -2378,7 +2334,7 @@ impl RenderDevice for RenderDeviceVk {
                 Ok((module, entry_point))
             };
 
-        let mut shader_groups = vec![ash::vk::RayTracingShaderGroupCreateInfoNV::default(); 2];
+        let mut shader_groups = vec![ash::vk::RayTracingShaderGroupCreateInfoKHR::default(); 2];
         let mut shader_stages = vec![ash::vk::PipelineShaderStageCreateInfo::default(); 2];
 
         // Keep entry point names alive, since build() forgets references.
@@ -2407,17 +2363,17 @@ impl RenderDevice for RenderDeviceVk {
                     let entry_point = &**entry_points.last().unwrap();
 
                     let stage = ash::vk::PipelineShaderStageCreateInfo::builder()
-                        .stage(ash::vk::ShaderStageFlags::RAYGEN_NV)
+                        .stage(ash::vk::ShaderStageFlags::RAYGEN_KHR)
                         .module(module)
                         .name(entry_point)
                         .build();
 
-                    let group = ash::vk::RayTracingShaderGroupCreateInfoNV::builder()
-                        .ty(ash::vk::RayTracingShaderGroupTypeNV::GENERAL)
+                    let group = ash::vk::RayTracingShaderGroupCreateInfoKHR::builder()
+                        .ty(ash::vk::RayTracingShaderGroupTypeKHR::GENERAL)
                         .general_shader(RAYGEN_IDX as _)
-                        .closest_hit_shader(ash::vk::SHADER_UNUSED_NV)
-                        .any_hit_shader(ash::vk::SHADER_UNUSED_NV)
-                        .intersection_shader(ash::vk::SHADER_UNUSED_NV)
+                        .closest_hit_shader(ash::vk::SHADER_UNUSED_KHR)
+                        .any_hit_shader(ash::vk::SHADER_UNUSED_KHR)
+                        .intersection_shader(ash::vk::SHADER_UNUSED_KHR)
                         .build();
 
                     shader_stages[RAYGEN_IDX] = stage;
@@ -2437,17 +2393,17 @@ impl RenderDevice for RenderDeviceVk {
                     let entry_point = &**entry_points.last().unwrap();
 
                     let stage = ash::vk::PipelineShaderStageCreateInfo::builder()
-                        .stage(ash::vk::ShaderStageFlags::MISS_NV)
+                        .stage(ash::vk::ShaderStageFlags::MISS_KHR)
                         .module(module)
                         .name(entry_point)
                         .build();
 
-                    let group = ash::vk::RayTracingShaderGroupCreateInfoNV::builder()
-                        .ty(ash::vk::RayTracingShaderGroupTypeNV::GENERAL)
+                    let group = ash::vk::RayTracingShaderGroupCreateInfoKHR::builder()
+                        .ty(ash::vk::RayTracingShaderGroupTypeKHR::GENERAL)
                         .general_shader(MISS_IDX as _)
-                        .closest_hit_shader(ash::vk::SHADER_UNUSED_NV)
-                        .any_hit_shader(ash::vk::SHADER_UNUSED_NV)
-                        .intersection_shader(ash::vk::SHADER_UNUSED_NV)
+                        .closest_hit_shader(ash::vk::SHADER_UNUSED_KHR)
+                        .any_hit_shader(ash::vk::SHADER_UNUSED_KHR)
+                        .intersection_shader(ash::vk::SHADER_UNUSED_KHR)
                         .build();
 
                     shader_stages[MISS_IDX] = stage;
@@ -2466,17 +2422,17 @@ impl RenderDevice for RenderDeviceVk {
                     let entry_point = &**entry_points.last().unwrap();
 
                     let stage = ash::vk::PipelineShaderStageCreateInfo::builder()
-                        .stage(ash::vk::ShaderStageFlags::CLOSEST_HIT_NV)
+                        .stage(ash::vk::ShaderStageFlags::CLOSEST_HIT_KHR)
                         .module(module)
                         .name(entry_point)
                         .build();
 
-                    let group = ash::vk::RayTracingShaderGroupCreateInfoNV::builder()
-                        .ty(ash::vk::RayTracingShaderGroupTypeNV::TRIANGLES_HIT_GROUP)
-                        .general_shader(ash::vk::SHADER_UNUSED_NV)
+                    let group = ash::vk::RayTracingShaderGroupCreateInfoKHR::builder()
+                        .ty(ash::vk::RayTracingShaderGroupTypeKHR::TRIANGLES_HIT_GROUP)
+                        .general_shader(ash::vk::SHADER_UNUSED_KHR)
                         .closest_hit_shader(shader_stages.len() as _)
-                        .any_hit_shader(ash::vk::SHADER_UNUSED_NV)
-                        .intersection_shader(ash::vk::SHADER_UNUSED_NV)
+                        .any_hit_shader(ash::vk::SHADER_UNUSED_KHR)
+                        .intersection_shader(ash::vk::SHADER_UNUSED_KHR)
                         .build();
 
                     shader_stages.push(stage);
@@ -2504,7 +2460,7 @@ impl RenderDevice for RenderDeviceVk {
             self.ray_tracing
                 .create_ray_tracing_pipelines(
                     self.pipeline_cache,
-                    &[ash::vk::RayTracingPipelineCreateInfoNV::builder()
+                    &[ash::vk::RayTracingPipelineCreateInfoKHR::builder()
                         .stages(&shader_stages)
                         .groups(&shader_groups)
                         .max_recursion_depth(1) // TODO
@@ -2600,17 +2556,34 @@ impl RenderDevice for RenderDeviceVk {
         let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> =
             Arc::new(RwLock::new(Box::new(RenderRayTracingShaderTableVk {
                 name: debug_name.to_string().into(),
+                raygen_shader_binding_table: ash::vk::StridedBufferRegionKHR {
+                    buffer: raygen_shader_binding_table.buffer,
+                    offset: 0,
+                    stride: prog_size as u64,
+                    size: (prog_size * desc.raygen_entry_count as usize) as u64,
+                },
                 raygen_shader_binding_table_buffer: Some(raygen_shader_binding_table),
-                raygen_shader_binding_offset: 0,
+                miss_shader_binding_table: ash::vk::StridedBufferRegionKHR {
+                    buffer: miss_shader_binding_table.buffer,
+                    offset: 0,
+                    stride: prog_size as u64,
+                    size: (prog_size * desc.miss_entry_count as usize) as u64,
+                },
                 miss_shader_binding_table_buffer: Some(miss_shader_binding_table),
-                miss_shader_binding_offset: 0,
-                miss_shader_binding_stride: prog_size as _,
+                hit_shader_binding_table: ash::vk::StridedBufferRegionKHR {
+                    buffer: hit_shader_binding_table.buffer,
+                    offset: 0,
+                    stride: prog_size as u64,
+                    size: (prog_size * desc.hit_entry_count as usize) as u64,
+                },
                 hit_shader_binding_table_buffer: Some(hit_shader_binding_table),
-                hit_shader_binding_offset: 0,
-                hit_shader_binding_stride: prog_size as _,
                 callable_shader_binding_table_buffer: None,
-                callable_shader_binding_offset: 0,
-                callable_shader_binding_stride: 0,
+                callable_shader_binding_table: ash::vk::StridedBufferRegionKHR {
+                    buffer: Default::default(),
+                    offset: 0,
+                    stride: 0,
+                    size: 0,
+                },
             })));
 
         self.storage.put(handle, resource)?;
@@ -4462,7 +4435,7 @@ impl GeometryInstance {
         id: u32,
         mask: u8,
         sbt_offset: u32,
-        flags: ash::vk::GeometryInstanceFlagsNV,
+        flags: ash::vk::GeometryInstanceFlagsKHR,
         acceleration_handle: u64,
     ) -> Self {
         let mut instance = GeometryInstance {
@@ -4493,7 +4466,7 @@ impl GeometryInstance {
         self.instance_sbt_offset_and_flags |= offset;
     }
 
-    fn set_flags(&mut self, flags: ash::vk::GeometryInstanceFlagsNV) {
+    fn set_flags(&mut self, flags: ash::vk::GeometryInstanceFlagsKHR) {
         let flags = flags.as_raw() as u32;
         self.instance_sbt_offset_and_flags |= flags << 24;
     }

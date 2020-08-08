@@ -6,7 +6,7 @@ use crate::raw::device::Device as RawDevice;
 use crate::raw::format::get_image_aspect_flags;
 use crate::{device::SET_OFFSET, types::*};
 use ash;
-use ash::extensions::ext::DebugMarker;
+use ash::extensions::{ext::DebugMarker, khr};
 use ash::version::DeviceV1_0;
 use render_core::commands::*;
 use render_core::constants::*;
@@ -23,9 +23,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use vk_sync;
-
-// TODO: feature-gate
-use ash::extensions::nv;
 
 struct RenderImageBarrier {
     previous_access: vk_sync::AccessType,  // AccessType::Nothing
@@ -61,7 +58,7 @@ pub struct RenderCompileContext {
     resource_tracker: RefCell<HashMap<RenderResourceHandle, RenderResourceStates>>,
     pending_image_barriers: HashMap<RenderResourceHandle, RenderImageBarrier>,
     pending_buffer_barriers: HashMap<RenderResourceHandle, RenderBufferBarrier>,
-    ray_tracing: Arc<nv::RayTracing>,
+    ray_tracing: Arc<khr::RayTracing>,
 }
 
 impl RenderCompileContext {
@@ -72,7 +69,7 @@ impl RenderCompileContext {
         cbuffer_descriptor_set_layouts: [ash::vk::DescriptorSetLayout; MAX_SHADER_PARAMETERS],
         storage: Arc<RenderResourceStorage<Box<dyn RenderResourceBase>>>,
         queue: Arc<RwLock<ash::vk::Queue>>,
-        ray_tracing: Arc<nv::RayTracing>,
+        ray_tracing: Arc<khr::RayTracing>,
     ) -> Self {
         RenderCompileContext {
             device,
@@ -942,7 +939,7 @@ impl RenderCompileContext {
         unsafe {
             let descriptor_sizes = [
                 ash::vk::DescriptorPoolSize {
-                    ty: ash::vk::DescriptorType::ACCELERATION_STRUCTURE_NV,
+                    ty: ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
                     descriptor_count: 1,
                 },
                 ash::vk::DescriptorPoolSize {
@@ -978,7 +975,7 @@ impl RenderCompileContext {
             let descriptor_set = descriptor_sets[0];
 
             let accel_structs = [top_as.handle];
-            let mut accel_info = ash::vk::WriteDescriptorSetAccelerationStructureNV::builder()
+            let mut accel_info = ash::vk::WriteDescriptorSetAccelerationStructureKHR::builder()
                 .acceleration_structures(&accel_structs)
                 .build();
 
@@ -986,7 +983,7 @@ impl RenderCompileContext {
                 .dst_set(descriptor_set)
                 .dst_binding(0)
                 .dst_array_element(0)
-                .descriptor_type(ash::vk::DescriptorType::ACCELERATION_STRUCTURE_NV)
+                .descriptor_type(ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                 .push_next(&mut accel_info)
                 .build();
 
@@ -1076,12 +1073,12 @@ impl RenderCompileContext {
 
             self.device.raw.cmd_bind_pipeline(
                 native,
-                ash::vk::PipelineBindPoint::RAY_TRACING_NV,
+                ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
                 pipeline.pipeline,
             );
             self.device.raw.cmd_bind_descriptor_sets(
                 native,
-                ash::vk::PipelineBindPoint::RAY_TRACING_NV,
+                ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
                 pipeline.pipeline_layout,
                 0,
                 &[descriptor_set],
@@ -1089,29 +1086,10 @@ impl RenderCompileContext {
             );
             self.ray_tracing.cmd_trace_rays(
                 native,
-                sbt.raygen_shader_binding_table_buffer
-                    .as_ref()
-                    .map(|buf| buf.buffer)
-                    .unwrap_or_default(),
-                sbt.raygen_shader_binding_offset,
-                sbt.miss_shader_binding_table_buffer
-                    .as_ref()
-                    .map(|buf| buf.buffer)
-                    .unwrap_or_default(),
-                sbt.miss_shader_binding_offset,
-                sbt.miss_shader_binding_stride,
-                sbt.hit_shader_binding_table_buffer
-                    .as_ref()
-                    .map(|buf| buf.buffer)
-                    .unwrap_or_default(),
-                sbt.hit_shader_binding_offset,
-                sbt.hit_shader_binding_stride,
-                sbt.callable_shader_binding_table_buffer
-                    .as_ref()
-                    .map(|buf| buf.buffer)
-                    .unwrap_or_default(),
-                sbt.callable_shader_binding_offset,
-                sbt.callable_shader_binding_stride,
+                std::slice::from_ref(&sbt.raygen_shader_binding_table),
+                std::slice::from_ref(&sbt.miss_shader_binding_table),
+                std::slice::from_ref(&sbt.hit_shader_binding_table),
+                std::slice::from_ref(&sbt.callable_shader_binding_table),
                 typed_command.width,
                 typed_command.height,
                 1,
