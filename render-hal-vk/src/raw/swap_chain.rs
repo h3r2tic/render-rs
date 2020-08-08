@@ -24,9 +24,21 @@ impl SwapChain {
         // TODO: Clean this up
         vec![
             ash::extensions::khr::Swapchain::name().to_str().unwrap(),
-            "VK_KHR_maintenance1",
-            "VK_KHR_maintenance2",
-            "VK_KHR_sampler_mirror_clamp_to_edge",
+            ash::vk::KhrMaintenance1Fn::name().to_str().unwrap(),
+            ash::vk::KhrMaintenance2Fn::name().to_str().unwrap(),
+            ash::vk::KhrMaintenance3Fn::name().to_str().unwrap(),
+            ash::vk::KhrGetMemoryRequirements2Fn::name()
+                .to_str()
+                .unwrap(),
+            ash::vk::KhrSamplerMirrorClampToEdgeFn::name()
+                .to_str()
+                .unwrap(),
+            ash::vk::ExtDescriptorIndexingFn::name().to_str().unwrap(),
+            ash::vk::ExtScalarBlockLayoutFn::name().to_str().unwrap(),
+            ash::vk::ExtDescriptorIndexingFn::name().to_str().unwrap(),
+            // TODO: feature gate
+            ash::extensions::nv::RayTracing::name().to_str().unwrap(),
+            //vk::ExtFragmentShaderInterlockFn::name().to_str().unwrap(),
         ]
         //vec![ash::extensions::Swapchain::name().to_str().unwrap()]
     }

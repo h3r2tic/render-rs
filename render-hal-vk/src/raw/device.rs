@@ -179,7 +179,7 @@ impl Device {
         physical_device: Arc<PhysicalDevice>,
         families: Q,
         extensions: E,
-        features: ash::vk::PhysicalDeviceFeatures,
+        features2: &mut ash::vk::PhysicalDeviceFeatures2,
     ) -> Result<Self, DeviceError>
     where
         Q: IntoIterator,
@@ -233,24 +233,19 @@ impl Device {
 
         let instance = physical_device.instance.get_instance();
 
+        let device_create_info = ash::vk::DeviceCreateInfo::builder()
+            .queue_create_infos(&queue_create_infos)
+            .enabled_extension_names(&enabled_extensions)
+            .push_next(features2)
+            /*.push_next(&mut scalar_block)
+            .push_next(&mut descriptor_indexing)
+            .push_next(&mut imageless_framebuffer)
+            .push_next(&mut fragment_shader_interlock)*/
+            .build();
+
         let device = unsafe {
             instance
-                .create_device(
-                    physical_device.raw,
-                    &ash::vk::DeviceCreateInfo {
-                        s_type: ash::vk::StructureType::DEVICE_CREATE_INFO,
-                        p_next: null(),
-                        flags: ash::vk::DeviceCreateFlags::empty(),
-                        queue_create_info_count: queue_create_infos.len() as u32,
-                        p_queue_create_infos: queue_create_infos.as_ptr(),
-                        enabled_layer_count: 0,
-                        pp_enabled_layer_names: null(),
-                        enabled_extension_count: enabled_extensions.len() as u32,
-                        pp_enabled_extension_names: enabled_extensions.as_ptr() as _,
-                        p_enabled_features: &features,
-                    },
-                    None,
-                )
+                .create_device(physical_device.raw, &device_create_info, None)
                 .unwrap()
             // TODO: .map_err(DeviceError::from_device_error)?
         };

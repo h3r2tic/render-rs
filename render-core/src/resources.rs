@@ -4,7 +4,11 @@ use crate::types::RenderResourceType;
 use downcast_rs::Downcast;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::{
+    any::Any,
+    marker::PhantomData,
+    sync::{Arc, RwLock, RwLockReadGuard},
+};
 
 pub trait RenderResourceBase: Downcast + fmt::Debug {
     fn get_type(&self) -> RenderResourceType;
@@ -20,7 +24,7 @@ pub struct RenderResourceStorage<T> {
 unsafe impl<T> Send for RenderResourceStorage<T> {}
 unsafe impl<T> Sync for RenderResourceStorage<T> {}
 
-impl<T> RenderResourceStorage<T> {
+impl<T: Any> RenderResourceStorage<T> {
     pub fn new() -> Self {
         RenderResourceStorage {
             resources: Arc::new(RwLock::new(HashMap::new())),
@@ -133,14 +137,20 @@ impl<T> RenderResourceStorage<T> {
             },
         }*/
     }
+}
 
-    /*#[inline(always)]
-    pub fn get_typed<U: RenderResourceBase>(&self, handle: RenderResourceHandle) -> Result<U> {
+impl<T: std::borrow::Borrow<dyn RenderResourceBase> + 'static> RenderResourceStorage<T> {
+    #[inline(always)]
+    pub fn get_typed<'a, U: RenderResourceBase>(
+        &self,
+        handle: RenderResourceHandle,
+    ) -> Result<RenderResourceReadWrapper<T, U>> {
         let resource = self.get(handle)?;
-        let resource = resource.read().unwrap();
-        let typed = resource.downcast_ref::<U>().unwrap();
-        Ok(typed)
-    }*/
+        Ok(RenderResourceReadWrapper::<T, U> {
+            resource: guardian::ArcRwLockReadGuardian::take(resource).unwrap(),
+            marker: PhantomData,
+        })
+    }
 }
 
 impl<T> fmt::Debug for RenderResourceStorage<T> {
@@ -148,5 +158,26 @@ impl<T> fmt::Debug for RenderResourceStorage<T> {
         fmt.debug_struct("RenderResourceStorage")
             .field("TODO", &"TODO_HERE")
             .finish()
+    }
+}
+
+pub struct RenderResourceReadWrapper<T, U: RenderResourceBase>
+where
+    T: std::borrow::Borrow<dyn RenderResourceBase> + 'static,
+{
+    resource: guardian::ArcRwLockReadGuardian<T>,
+    marker: PhantomData<U>,
+}
+
+impl<T, U: RenderResourceBase> std::ops::Deref for RenderResourceReadWrapper<T, U>
+where
+    T: std::borrow::Borrow<dyn RenderResourceBase> + 'static,
+{
+    type Target = U;
+
+    fn deref(&self) -> &Self::Target {
+        std::borrow::Borrow::borrow(&*self.resource)
+            .downcast_ref()
+            .unwrap()
     }
 }

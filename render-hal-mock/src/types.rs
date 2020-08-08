@@ -239,13 +239,28 @@ impl RenderResourceBase for RenderRayTracingGeometryMock {
 }
 
 #[derive(Clone, Debug)]
-pub struct RenderRayTracingAccelerationMock {
+pub struct RenderRayTracingBottomAccelerationMock {
     pub name: Cow<'static, str>,
 }
 
-impl RenderResourceBase for RenderRayTracingAccelerationMock {
+impl RenderResourceBase for RenderRayTracingBottomAccelerationMock {
     fn get_type(&self) -> RenderResourceType {
-        RenderResourceType::RayTracingAcceleration
+        RenderResourceType::RayTracingBottomAcceleration
+    }
+
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RenderRayTracingTopAccelerationMock {
+    pub name: Cow<'static, str>,
+}
+
+impl RenderResourceBase for RenderRayTracingTopAccelerationMock {
+    fn get_type(&self) -> RenderResourceType {
+        RenderResourceType::RayTracingTopAcceleration
     }
 
     fn get_name(&self) -> &str {

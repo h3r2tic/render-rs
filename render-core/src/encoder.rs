@@ -481,6 +481,7 @@ impl<'a> RenderCommandList<'a> {
         &mut self,
         pipeline_state: RenderResourceHandle,
         shader_table: RenderResourceHandle,
+        top_as: RenderResourceHandle,
         rt_output: RenderResourceHandle, // TODO: Eliminate this once we have a better way to specify explicit transitions
         width: u32,
         height: u32,
@@ -493,6 +494,7 @@ impl<'a> RenderCommandList<'a> {
             CommandType::new(
                 pipeline_state,
                 shader_table,
+                top_as,
                 rt_output,
                 width,
                 height,
@@ -534,6 +536,8 @@ impl<'a> RenderCommandList<'a> {
         Ok(mark)
     }
 
+    // Note: all the entries in RenderShaderTableUpdateDesc must already be present
+    // in the ray tracing pipeline state.
     pub fn update_shader_table(
         &mut self,
         shader_table: RenderResourceHandle,

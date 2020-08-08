@@ -24,6 +24,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use vk_sync;
 
+// TODO: feature-gate
+use ash::extensions::nv;
+
 struct RenderImageBarrier {
     previous_access: vk_sync::AccessType,  // AccessType::Nothing
     next_access: vk_sync::AccessType,      // AccessType::Nothing
@@ -58,6 +61,7 @@ pub struct RenderCompileContext {
     resource_tracker: RefCell<HashMap<RenderResourceHandle, RenderResourceStates>>,
     pending_image_barriers: HashMap<RenderResourceHandle, RenderImageBarrier>,
     pending_buffer_barriers: HashMap<RenderResourceHandle, RenderBufferBarrier>,
+    ray_tracing: Arc<nv::RayTracing>,
 }
 
 impl RenderCompileContext {
@@ -68,6 +72,7 @@ impl RenderCompileContext {
         cbuffer_descriptor_set_layouts: [ash::vk::DescriptorSetLayout; MAX_SHADER_PARAMETERS],
         storage: Arc<RenderResourceStorage<Box<dyn RenderResourceBase>>>,
         queue: Arc<RwLock<ash::vk::Queue>>,
+        ray_tracing: Arc<nv::RayTracing>,
     ) -> Self {
         RenderCompileContext {
             device,
@@ -86,6 +91,7 @@ impl RenderCompileContext {
             resource_tracker: RefCell::new(HashMap::new()),
             pending_image_barriers: HashMap::new(),
             pending_buffer_barriers: HashMap::new(),
+            ray_tracing,
         }
     }
 
@@ -913,10 +919,205 @@ impl RenderCompileContext {
         native: ash::vk::CommandBuffer,
         command: &dyn RenderCommand,
     ) -> Result<()> {
-        error!("Calling ray_trace - unimplemented");
         let command_ptr = command as *const dyn RenderCommand;
         let typed_command_ptr = command_ptr as *const RenderCommandRayTrace;
-        let typed_command = unsafe { &*typed_command_ptr };
+        let typed_command: &RenderCommandRayTrace = unsafe { &*typed_command_ptr };
+
+        let pipeline = &*self
+            .storage
+            .get_typed::<RenderRayTracingPipelineStateVk>(typed_command.pipeline_state)?;
+
+        let sbt = &*self
+            .storage
+            .get_typed::<RenderRayTracingShaderTableVk>(typed_command.shader_table)?;
+
+        let top_as = &*self
+            .storage
+            .get_typed::<RenderRayTracingTopAccelerationVk>(typed_command.top_as)?;
+
+        let rt_output = &*self
+            .storage
+            .get_typed::<RenderTextureVk>(typed_command.rt_output)?;
+
+        unsafe {
+            let descriptor_sizes = [
+                ash::vk::DescriptorPoolSize {
+                    ty: ash::vk::DescriptorType::ACCELERATION_STRUCTURE_NV,
+                    descriptor_count: 1,
+                },
+                ash::vk::DescriptorPoolSize {
+                    ty: ash::vk::DescriptorType::STORAGE_IMAGE,
+                    descriptor_count: 1,
+                },
+                /*ash::vk::DescriptorPoolSize {
+                    ty: ash::vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 3,
+                },*/
+            ];
+
+            let descriptor_pool_info = ash::vk::DescriptorPoolCreateInfo::builder()
+                .pool_sizes(&descriptor_sizes)
+                .max_sets(1);
+
+            let descriptor_pool = self
+                .device
+                .raw
+                .create_descriptor_pool(&descriptor_pool_info, None)
+                .unwrap();
+
+            let descriptor_sets = self
+                .device
+                .raw
+                .allocate_descriptor_sets(
+                    &ash::vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(&[pipeline.descriptor_set_layout])
+                        .build(),
+                )
+                .unwrap();
+            let descriptor_set = descriptor_sets[0];
+
+            let accel_structs = [top_as.handle];
+            let mut accel_info = ash::vk::WriteDescriptorSetAccelerationStructureNV::builder()
+                .acceleration_structures(&accel_structs)
+                .build();
+
+            let mut accel_write = ash::vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(ash::vk::DescriptorType::ACCELERATION_STRUCTURE_NV)
+                .push_next(&mut accel_info)
+                .build();
+
+            // This is only set by the builder for images, buffers, or views; need to set explicitly after
+            accel_write.descriptor_count = 1;
+
+            // HACK
+            let image_view = {
+                let texture = rt_output;
+                let format = crate::raw::format::convert_format(
+                    texture.desc.format,
+                    false, /* typeless */
+                );
+
+                let image_view_create_info = ash::vk::ImageViewCreateInfo::builder()
+                    .format(format)
+                    .image(texture.image)
+                    .components(ash::vk::ComponentMapping {
+                        r: ash::vk::ComponentSwizzle::R,
+                        g: ash::vk::ComponentSwizzle::G,
+                        b: ash::vk::ComponentSwizzle::B,
+                        a: ash::vk::ComponentSwizzle::A,
+                    })
+                    .view_type(crate::ash::vk::ImageViewType::TYPE_2D)
+                    .subresource_range(ash::vk::ImageSubresourceRange {
+                        aspect_mask: ash::vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .build();
+
+                self.device
+                    .raw
+                    .create_image_view(&image_view_create_info, None)
+                    .unwrap()
+            };
+
+            let image_info = [ash::vk::DescriptorImageInfo::builder()
+                .image_layout(ash::vk::ImageLayout::GENERAL)
+                .image_view(image_view)
+                .build()];
+
+            let image_write = ash::vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(ash::vk::DescriptorType::STORAGE_IMAGE)
+                .image_info(&image_info)
+                .build();
+
+            // Update descriptors for bindless uniform buffers
+
+            /*let buffer0 = self.color0_buffer.as_ref().unwrap().buffer;
+            let buffer1 = self.color1_buffer.as_ref().unwrap().buffer;
+            let buffer2 = self.color2_buffer.as_ref().unwrap().buffer;
+
+            let buffer_info = [
+                ash::vk::DescriptorBufferInfo::builder()
+                    .buffer(buffer0)
+                    .range(ash::vk::WHOLE_SIZE)
+                    .build(),
+                ash::vk::DescriptorBufferInfo::builder()
+                    .buffer(buffer1)
+                    .range(ash::vk::WHOLE_SIZE)
+                    .build(),
+                ash::vk::DescriptorBufferInfo::builder()
+                    .buffer(buffer2)
+                    .range(ash::vk::WHOLE_SIZE)
+                    .build(),
+            ];
+
+            let buffers_write = ash::vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&buffer_info)
+                .build();*/
+
+            self.device
+                .raw
+                .update_descriptor_sets(&[accel_write, image_write /*, buffers_write*/], &[]);
+
+            // ----
+
+            self.device.raw.cmd_bind_pipeline(
+                native,
+                ash::vk::PipelineBindPoint::RAY_TRACING_NV,
+                pipeline.pipeline,
+            );
+            self.device.raw.cmd_bind_descriptor_sets(
+                native,
+                ash::vk::PipelineBindPoint::RAY_TRACING_NV,
+                pipeline.pipeline_layout,
+                0,
+                &[descriptor_set],
+                &[],
+            );
+            self.ray_tracing.cmd_trace_rays(
+                native,
+                sbt.raygen_shader_binding_table_buffer
+                    .as_ref()
+                    .map(|buf| buf.buffer)
+                    .unwrap_or_default(),
+                sbt.raygen_shader_binding_offset,
+                sbt.miss_shader_binding_table_buffer
+                    .as_ref()
+                    .map(|buf| buf.buffer)
+                    .unwrap_or_default(),
+                sbt.miss_shader_binding_offset,
+                sbt.miss_shader_binding_stride,
+                sbt.hit_shader_binding_table_buffer
+                    .as_ref()
+                    .map(|buf| buf.buffer)
+                    .unwrap_or_default(),
+                sbt.hit_shader_binding_offset,
+                sbt.hit_shader_binding_stride,
+                sbt.callable_shader_binding_table_buffer
+                    .as_ref()
+                    .map(|buf| buf.buffer)
+                    .unwrap_or_default(),
+                sbt.callable_shader_binding_offset,
+                sbt.callable_shader_binding_stride,
+                typed_command.width,
+                typed_command.height,
+                1,
+            )
+        }
+
         Ok(())
     }
 

@@ -183,6 +183,9 @@ impl RenderBackendVk {
                 .collect();
             explicit_extensions.push(String::from("VK_EXT_debug_report"));
             //explicit_extensions.push(String::from("VK_EXT_debug_utils"));
+
+            explicit_extensions.push(String::from("VK_KHR_get_physical_device_properties2"));
+
             trace!("Selected extensions: {:#?}", explicit_extensions);
 
             InstanceConfig {

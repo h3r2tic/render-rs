@@ -8,6 +8,7 @@ use ash::{
     self,
     extensions::{ext::DebugMarker, ext::DebugReport, khr::Surface, khr::Swapchain},
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
+    vk::KhrGetPhysicalDeviceProperties2Fn,
     Entry,
 };
 
@@ -41,6 +42,7 @@ fn extension_names() -> Vec<*const i8> {
         Surface::name().as_ptr(),
         XlibSurface::name().as_ptr(),
         DebugReport::name().as_ptr(),
+        KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
     ]
 }
 
@@ -50,6 +52,7 @@ fn extension_names() -> Vec<*const i8> {
         Surface::name().as_ptr(),
         MacOSSurface::name().as_ptr(),
         DebugReport::name().as_ptr(),
+        KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
     ]
 }
 
@@ -59,6 +62,7 @@ fn extension_names() -> Vec<*const i8> {
         Surface::name().as_ptr(),
         Win32Surface::name().as_ptr(),
         DebugReport::name().as_ptr(),
+        KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
     ]
 }
 
@@ -115,7 +119,7 @@ impl Drop for InnerInstance {
 /// Vulkan instance.
 #[derive(Clone)]
 pub struct Instance {
-    pub(crate) inner: Arc<Box<InnerInstance>>,
+    pub(crate) inner: Arc<InnerInstance>,
 }
 
 impl Deref for Instance {
@@ -200,7 +204,7 @@ impl Instance {
                 application_version: config.app_version,
                 p_engine_name: engine_name.as_ptr(),
                 engine_version: ash::vk::make_version(1, 0, 0),
-                api_version: ash::vk::make_version(1, 0, 36),
+                api_version: ash::vk::make_version(1, 2, 0),
             };
 
             let layers: Vec<CString> = config
@@ -295,14 +299,14 @@ impl Instance {
         let surface_loader = Arc::new(ash::extensions::khr::Surface::new(&entry, &instance));
 
         let result = Instance {
-            inner: Arc::new(Box::new(InnerInstance {
+            inner: Arc::new(InnerInstance {
                 entry,
                 raw: instance,
                 surface,
                 debug_callback,
                 debug_loader,
                 surface_loader,
-            })),
+            }),
         };
 
         Ok(result)

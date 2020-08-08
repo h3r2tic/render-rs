@@ -626,6 +626,7 @@ impl RenderCommand for RenderCommandEndRenderPass {
 pub struct RenderCommandRayTrace {
     pub pipeline_state: RenderResourceHandle,
     pub shader_table: RenderResourceHandle,
+    pub top_as: RenderResourceHandle,
     pub rt_output: RenderResourceHandle, // TODO: Eliminate this once we have a better way to specify explicit transitions
     pub width: u32,
     pub height: u32,
@@ -636,6 +637,7 @@ impl RenderCommandRayTrace {
     pub fn new(
         pipeline_state: RenderResourceHandle,
         shader_table: RenderResourceHandle,
+        top_as: RenderResourceHandle,
         rt_output: RenderResourceHandle, // TODO: Eliminate this once we have a better way to specify explicit transitions
         width: u32,
         height: u32,
@@ -644,6 +646,7 @@ impl RenderCommandRayTrace {
         RenderCommandRayTrace {
             pipeline_state,
             shader_table,
+            top_as,
             rt_output,
             width,
             height,

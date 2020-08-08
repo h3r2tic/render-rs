@@ -94,9 +94,14 @@ impl RenderDevice for RenderDeviceMock {
                     .downcast_ref::<RenderRayTracingProgramMock>()
                     .unwrap();
             }
-            RenderResourceType::RayTracingAcceleration => {
+            RenderResourceType::RayTracingBottomAcceleration => {
                 let mut _resource = resource
-                    .downcast_ref::<RenderRayTracingAccelerationMock>()
+                    .downcast_ref::<RenderRayTracingBottomAccelerationMock>()
+                    .unwrap();
+            }
+            RenderResourceType::RayTracingTopAcceleration => {
+                let mut _resource = resource
+                    .downcast_ref::<RenderRayTracingTopAccelerationMock>()
                     .unwrap();
             }
             RenderResourceType::RayTracingPipelineState => {
@@ -321,11 +326,12 @@ impl RenderDevice for RenderDeviceMock {
             debug_name, desc
         );
 
-        let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> =
-            Arc::new(RwLock::new(Box::new(RenderRayTracingAccelerationMock {
+        let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> = Arc::new(RwLock::new(Box::new(
+            RenderRayTracingBottomAccelerationMock {
                 name: debug_name.to_string().into(),
                 //desc: desc.clone(),
-            })));
+            },
+        )));
 
         self.storage.put(handle, resource)?;
         Ok(())
@@ -342,11 +348,12 @@ impl RenderDevice for RenderDeviceMock {
             debug_name, desc
         );
 
-        let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> =
-            Arc::new(RwLock::new(Box::new(RenderRayTracingAccelerationMock {
+        let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> = Arc::new(RwLock::new(Box::new(
+            RenderRayTracingBottomAccelerationMock {
                 name: debug_name.to_string().into(),
                 //desc: desc.clone(),
-            })));
+            },
+        )));
 
         self.storage.put(handle, resource)?;
         Ok(())

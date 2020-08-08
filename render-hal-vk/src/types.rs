@@ -319,6 +319,9 @@ impl RenderResourceBase for RenderPassVk {
 #[derive(Clone, Debug)]
 pub struct RenderRayTracingPipelineStateVk {
     pub name: Cow<'static, str>,
+    pub pipeline: ash::vk::Pipeline,
+    pub pipeline_layout: ash::vk::PipelineLayout,
+    pub descriptor_set_layout: ash::vk::DescriptorSetLayout,
 }
 
 impl RenderResourceBase for RenderRayTracingPipelineStateVk {
@@ -336,6 +339,7 @@ impl RenderResourceBase for RenderRayTracingPipelineStateVk {
 #[derive(Clone, Debug)]
 pub struct RenderRayTracingProgramVk {
     pub name: Cow<'static, str>,
+    pub desc: RayTracingProgramDesc,
 }
 
 impl RenderResourceBase for RenderRayTracingProgramVk {
@@ -368,14 +372,35 @@ impl RenderResourceBase for RenderRayTracingGeometryVk {
 }
 
 #[derive(Clone, Debug)]
-pub struct RenderRayTracingAccelerationVk {
+pub struct RenderRayTracingBottomAccelerationVk {
     pub name: Cow<'static, str>,
+    pub allocation: vk_mem::Allocation,
+    pub handle: ash::vk::AccelerationStructureNV,
 }
 
-impl RenderResourceBase for RenderRayTracingAccelerationVk {
+impl RenderResourceBase for RenderRayTracingBottomAccelerationVk {
     #[inline]
     fn get_type(&self) -> RenderResourceType {
-        RenderResourceType::RayTracingAcceleration
+        RenderResourceType::RayTracingBottomAcceleration
+    }
+
+    #[inline]
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RenderRayTracingTopAccelerationVk {
+    pub name: Cow<'static, str>,
+    pub allocation: vk_mem::Allocation,
+    pub handle: ash::vk::AccelerationStructureNV,
+}
+
+impl RenderResourceBase for RenderRayTracingTopAccelerationVk {
+    #[inline]
+    fn get_type(&self) -> RenderResourceType {
+        RenderResourceType::RayTracingTopAcceleration
     }
 
     #[inline]
@@ -387,6 +412,17 @@ impl RenderResourceBase for RenderRayTracingAccelerationVk {
 #[derive(Clone, Debug)]
 pub struct RenderRayTracingShaderTableVk {
     pub name: Cow<'static, str>,
+    pub raygen_shader_binding_table_buffer: Option<crate::device::BufferResource>,
+    pub raygen_shader_binding_offset: ash::vk::DeviceSize,
+    pub miss_shader_binding_table_buffer: Option<crate::device::BufferResource>,
+    pub miss_shader_binding_offset: ash::vk::DeviceSize,
+    pub miss_shader_binding_stride: ash::vk::DeviceSize,
+    pub hit_shader_binding_table_buffer: Option<crate::device::BufferResource>,
+    pub hit_shader_binding_offset: ash::vk::DeviceSize,
+    pub hit_shader_binding_stride: ash::vk::DeviceSize,
+    pub callable_shader_binding_table_buffer: Option<crate::device::BufferResource>,
+    pub callable_shader_binding_offset: ash::vk::DeviceSize,
+    pub callable_shader_binding_stride: ash::vk::DeviceSize,
 }
 
 impl RenderResourceBase for RenderRayTracingShaderTableVk {

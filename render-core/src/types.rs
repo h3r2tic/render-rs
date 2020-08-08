@@ -317,16 +317,17 @@ enum_from_primitive! {
         GraphicsPipelineState = 6,
         ComputePipelineState = 7,
         RayTracingGeometry = 8,
-        RayTracingProgram = 9,
-        RayTracingAcceleration = 10,
-        RayTracingPipelineState = 11,
-        RayTracingShaderTable = 12,
-        DrawBindingSet = 13,
-        FrameBindingSet = 14,
-        RenderPass = 15,
-        CommandList = 16,
-        Fence = 17,
-        TimingHeap = 18,
+        RayTracingProgram = 9,  // "shader group"
+        RayTracingBottomAcceleration = 10,
+        RayTracingTopAcceleration = 11,
+        RayTracingPipelineState = 12,
+        RayTracingShaderTable = 13,
+        DrawBindingSet = 14,
+        FrameBindingSet = 15,
+        RenderPass = 16,
+        CommandList = 17,
+        Fence = 18,
+        TimingHeap = 19,
     }
 }
 
@@ -349,7 +350,8 @@ impl RenderResourceType {
             RenderResourceType::ComputePipelineState,
             RenderResourceType::RayTracingGeometry,
             RenderResourceType::RayTracingProgram,
-            RenderResourceType::RayTracingAcceleration,
+            RenderResourceType::RayTracingBottomAcceleration,
+            RenderResourceType::RayTracingTopAcceleration,
             RenderResourceType::RayTracingPipelineState,
             RenderResourceType::RayTracingShaderTable,
             RenderResourceType::DrawBindingSet,
@@ -699,14 +701,14 @@ pub struct RayTracingShaderDesc {
 #[derive(Clone, Debug)]
 pub struct RayTracingProgramDesc {
     pub program_type: RayTracingProgramType,
-    pub shaders: [RayTracingShaderDesc; MAX_RAY_TRACING_SHADER_TYPE],
+    pub shaders: [Option<RayTracingShaderDesc>; MAX_RAY_TRACING_SHADER_TYPE],
     pub signature: RenderShaderSignatureDesc,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct RayTracingGeometryPart {
     pub index_count: u32,
-    pub index_offset: u32,
+    pub index_offset: u32, // offset into the index buffer in bytes
 }
 
 #[derive(Clone, Debug)]
@@ -714,14 +716,20 @@ pub struct RayTracingGeometryDesc {
     pub geometry_type: RayTracingGeometryType,
     pub vertex_buffer: RenderBindingBuffer,
     pub index_buffer: RenderBindingBuffer,
+    pub vertex_format: RenderFormat,
     pub parts: Vec<RayTracingGeometryPart>,
 }
 
 #[derive(Clone, Debug)]
-pub struct RayTracingTopAccelerationDesc {}
+pub struct RayTracingTopAccelerationDesc {
+    // TODO
+    pub instances: Vec<RenderResourceHandle>, // BLAS
+}
 
 #[derive(Clone, Debug)]
-pub struct RayTracingBottomAccelerationDesc {}
+pub struct RayTracingBottomAccelerationDesc {
+    pub geometries: Vec<RayTracingGeometryDesc>,
+}
 
 #[derive(Clone, Debug)]
 pub struct RayTracingPipelineStateDesc {
@@ -730,6 +738,7 @@ pub struct RayTracingPipelineStateDesc {
 
 #[derive(Clone, Debug)]
 pub struct RayTracingShaderTableDesc {
+    pub pipeline_state: RenderResourceHandle,
     pub raygen_entry_count: u32,
     pub hit_entry_count: u32,
     pub miss_entry_count: u32,

@@ -823,6 +823,7 @@ fn record_ray_trace() {
     let mut command_list = RenderCommandList::new(Arc::clone(&handles), 8 * 1024, 16).unwrap();
 
     // Dummy render resources
+    let top_as = handles_write.allocate(RenderResourceType::RayTracingTopAcceleration);
     let pipeline_state_handle = handles_write.allocate(RenderResourceType::RayTracingPipelineState);
     let shader_table_handle = handles_write.allocate(RenderResourceType::RayTracingShaderTable);
     let rt_output_handle = handles_write.allocate(RenderResourceType::Texture);
@@ -832,6 +833,7 @@ fn record_ray_trace() {
             pipeline_state_handle,
             shader_table_handle,
             rt_output_handle,
+            top_as,
             123,
             456,
             789
@@ -848,6 +850,7 @@ fn record_ray_trace() {
     assert_eq!(command_typed.pipeline_state, pipeline_state_handle);
     assert_eq!(command_typed.shader_table, shader_table_handle);
     assert_eq!(command_typed.rt_output, rt_output_handle);
+    assert_eq!(command_typed.top_as, top_as);
     assert_eq!(command_typed.width, 123);
     assert_eq!(command_typed.height, 456);
     assert_eq!(command_typed.ray_gen_index, 789);
@@ -865,7 +868,7 @@ fn record_update_top_level_acceleration() {
     let mut command_list = RenderCommandList::new(Arc::clone(&handles), 8 * 1024, 16).unwrap();
 
     // Dummy render resources
-    let acceleration_handle = handles_write.allocate(RenderResourceType::RayTracingAcceleration);
+    let acceleration_handle = handles_write.allocate(RenderResourceType::RayTracingTopAcceleration);
 
     let desc = RenderAccelerationTopDesc::default();
 
@@ -901,7 +904,8 @@ fn record_update_bottom_level_acceleration() {
     let mut command_list = RenderCommandList::new(Arc::clone(&handles), 8 * 1024, 16).unwrap();
 
     // Dummy render resources
-    let acceleration_handle = handles_write.allocate(RenderResourceType::RayTracingAcceleration);
+    let acceleration_handle =
+        handles_write.allocate(RenderResourceType::RayTracingBottomAcceleration);
 
     assert!(command_list
         .update_bottom_level_acceleration(acceleration_handle, true)

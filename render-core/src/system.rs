@@ -274,11 +274,21 @@ impl RenderSystem {
         self.create_handle(RenderResourceType::RayTracingGeometry, resource_name)
     }
 
-    pub fn create_ray_tracing_acceleration_handle(
+    pub fn create_ray_tracing_bottom_acceleration_handle(
         &self,
         resource_name: Cow<'static, str>,
     ) -> Result<RenderResourceHandle> {
-        self.create_handle(RenderResourceType::RayTracingAcceleration, resource_name)
+        self.create_handle(
+            RenderResourceType::RayTracingBottomAcceleration,
+            resource_name,
+        )
+    }
+
+    pub fn create_ray_tracing_top_acceleration_handle(
+        &self,
+        resource_name: Cow<'static, str>,
+    ) -> Result<RenderResourceHandle> {
+        self.create_handle(RenderResourceType::RayTracingTopAcceleration, resource_name)
     }
 
     pub fn create_ray_tracing_pipeline_state_handle(
