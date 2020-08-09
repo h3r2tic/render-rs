@@ -24,7 +24,7 @@ enum_primitive = "0.1.1"
 downcast-rs = "1.1.1"
 vk-sync = { git = "https://github.com/zedrian/vk-sync-rs.git", rev = "e28c05d" }
 vk-mem = { git = "https://github.com/cheako/vk-mem-rs.git", rev = "4a5f613" }   # Ray tracing and VK 1.2 support
-spirv-reflect = { git = "https://github.com/h3r2tic/spirv-reflect-rs.git", rev = "246a700" }    # pure Rust version, SPIR-V 1.3+ fixes
+spirv-reflect = { git = "https://github.com/h3r2tic/spirv-reflect-rs.git", rev = "a51ba47" }    # pure Rust version, SPIR-V 1.3+ fixes, ray-tracing
 num-traits = "0.2.10"
 digest = "0.8.1"
 twox-hash = "1.5.0"

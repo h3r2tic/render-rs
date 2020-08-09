@@ -151,6 +151,18 @@ impl<T: std::borrow::Borrow<dyn RenderResourceBase> + 'static> RenderResourceSto
             marker: PhantomData,
         })
     }
+
+    #[inline(always)]
+    pub fn get_typed_mut<'a, U: RenderResourceBase>(
+        &self,
+        handle: RenderResourceHandle,
+    ) -> Result<RenderResourceWriteWrapper<T, U>> {
+        let resource = self.get(handle)?;
+        Ok(RenderResourceWriteWrapper::<T, U> {
+            resource: guardian::ArcRwLockWriteGuardian::take(resource).unwrap(),
+            marker: PhantomData,
+        })
+    }
 }
 
 impl<T> fmt::Debug for RenderResourceStorage<T> {
@@ -178,6 +190,38 @@ where
     fn deref(&self) -> &Self::Target {
         std::borrow::Borrow::borrow(&*self.resource)
             .downcast_ref()
+            .unwrap()
+    }
+}
+
+pub struct RenderResourceWriteWrapper<T, U: RenderResourceBase>
+where
+    T: std::borrow::Borrow<dyn RenderResourceBase> + 'static,
+{
+    resource: guardian::ArcRwLockWriteGuardian<T>,
+    marker: PhantomData<U>,
+}
+
+impl<T, U: RenderResourceBase> std::ops::Deref for RenderResourceWriteWrapper<T, U>
+where
+    T: std::borrow::Borrow<dyn RenderResourceBase> + 'static,
+{
+    type Target = U;
+
+    fn deref(&self) -> &Self::Target {
+        std::borrow::Borrow::borrow(&*self.resource)
+            .downcast_ref()
+            .unwrap()
+    }
+}
+
+impl<T, U: RenderResourceBase> std::ops::DerefMut for RenderResourceWriteWrapper<T, U>
+where
+    T: std::borrow::BorrowMut<dyn RenderResourceBase> + 'static,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        std::borrow::BorrowMut::borrow_mut(&mut *self.resource)
+            .downcast_mut()
             .unwrap()
     }
 }

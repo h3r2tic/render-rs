@@ -826,13 +826,11 @@ fn record_ray_trace() {
     let top_as = handles_write.allocate(RenderResourceType::RayTracingTopAcceleration);
     let pipeline_state_handle = handles_write.allocate(RenderResourceType::RayTracingPipelineState);
     let shader_table_handle = handles_write.allocate(RenderResourceType::RayTracingShaderTable);
-    let rt_output_handle = handles_write.allocate(RenderResourceType::Texture);
 
     assert!(command_list
         .ray_trace(
             pipeline_state_handle,
             shader_table_handle,
-            rt_output_handle,
             top_as,
             123,
             456,
@@ -849,7 +847,6 @@ fn record_ray_trace() {
     let command_typed = command.downcast_ref::<RenderCommandRayTrace>().unwrap();
     assert_eq!(command_typed.pipeline_state, pipeline_state_handle);
     assert_eq!(command_typed.shader_table, shader_table_handle);
-    assert_eq!(command_typed.rt_output, rt_output_handle);
     assert_eq!(command_typed.top_as, top_as);
     assert_eq!(command_typed.width, 123);
     assert_eq!(command_typed.height, 456);

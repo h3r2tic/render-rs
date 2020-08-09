@@ -1502,36 +1502,9 @@ impl RenderDevice for RenderDeviceVk {
                             layout_binding.descriptor_count *= dim;
                         }
 
-                        let shader_stage = reflect_module.get_shader_stage();
-                        if shader_stage == spirv_reflect::types::ReflectShaderStage::Vertex {
-                            layout_binding.stage_flags |= ash::vk::ShaderStageFlags::VERTEX;
-                        }
+                        layout_binding.stage_flags =
+                            reflection_shader_stage_to_vk(reflect_module.get_shader_stage());
 
-                        if shader_stage
-                            == spirv_reflect::types::ReflectShaderStage::TessellationControl
-                        {
-                            layout_binding.stage_flags |=
-                                ash::vk::ShaderStageFlags::TESSELLATION_CONTROL;
-                        }
-
-                        if shader_stage
-                            == spirv_reflect::types::ReflectShaderStage::TessellationEvaluation
-                        {
-                            layout_binding.stage_flags |=
-                                ash::vk::ShaderStageFlags::TESSELLATION_EVALUATION;
-                        }
-
-                        if shader_stage == spirv_reflect::types::ReflectShaderStage::Geometry {
-                            layout_binding.stage_flags |= ash::vk::ShaderStageFlags::GEOMETRY;
-                        }
-
-                        if shader_stage == spirv_reflect::types::ReflectShaderStage::Fragment {
-                            layout_binding.stage_flags |= ash::vk::ShaderStageFlags::FRAGMENT;
-                        }
-
-                        if shader_stage == spirv_reflect::types::ReflectShaderStage::Compute {
-                            layout_binding.stage_flags |= ash::vk::ShaderStageFlags::COMPUTE;
-                        }
                         layout_bindings.push(layout_binding);
                     }
                     set_layouts.push((reflected_set.set, layout_bindings));
@@ -1663,8 +1636,7 @@ impl RenderDevice for RenderDeviceVk {
                     (buffer_view, ash::vk::ImageView::null())
                 }
                 RenderResourceType::RayTracingTopAcceleration => {
-                    // TODO: Ray tracing support
-                    unimplemented!();
+                    (ash::vk::BufferView::null(), ash::vk::ImageView::null())
                 }
                 _ => {
                     unimplemented!();
@@ -1801,7 +1773,7 @@ impl RenderDevice for RenderDeviceVk {
         let device = Arc::clone(&self.logical_device);
         let raw_device = device.device();
 
-        let mut remapped_shaders: [Option<RayTracingShaderDesc>; MAX_RAY_TRACING_SHADER_TYPE] =
+        let mut remapped_shaders: [Option<RenderRayTracingShaderVk>; MAX_RAY_TRACING_SHADER_TYPE] =
             [None, None, None, None, None];
 
         for (shader_idx, desc) in desc.shaders.iter().enumerate() {
@@ -1865,18 +1837,24 @@ impl RenderDevice for RenderDeviceVk {
                                         smp_count += 1;
                                     }
                                     ReflectResourceTypeFlags::UNORDERED_ACCESS_VIEW => {
-                                        /*remaps.push(BindingSetRemap {
+                                        remaps.push(BindingSetRemap {
                                             binding_index: binding_index as u32,
                                             old_binding: binding.binding,
                                             new_binding: uav_count + UAV_OFFSET,
                                             old_set: set_index as u32,
                                             new_set: ARG_OFFSET + set_index as u32,
                                         });
-                                        uav_count += 1;*/
-                                        // TODO
+                                        uav_count += 1;
                                     }
                                     ReflectResourceTypeFlags::ACCELERATION_STRUCTURE => {
-                                        // TODO
+                                        remaps.push(BindingSetRemap {
+                                            binding_index: binding_index as u32,
+                                            old_binding: binding.binding,
+                                            new_binding: srv_count + SRV_OFFSET,
+                                            old_set: set_index as u32,
+                                            new_set: ARG_OFFSET + set_index as u32,
+                                        });
+                                        srv_count += 1;
                                     }
                                     _ => unimplemented!(),
                                 }
@@ -1929,45 +1907,10 @@ impl RenderDevice for RenderDeviceVk {
                                     layout_binding.descriptor_count *= dim;
                                 }
 
-                                let shader_stage = reflect_module.get_shader_stage();
-                                if shader_stage == spirv_reflect::types::ReflectShaderStage::Vertex
-                                {
-                                    layout_binding.stage_flags |= ash::vk::ShaderStageFlags::VERTEX;
-                                }
+                                layout_binding.stage_flags = reflection_shader_stage_to_vk(
+                                    reflect_module.get_shader_stage(),
+                                );
 
-                                if shader_stage
-                                    == spirv_reflect::types::ReflectShaderStage::TessellationControl
-                                {
-                                    layout_binding.stage_flags |=
-                                        ash::vk::ShaderStageFlags::TESSELLATION_CONTROL;
-                                }
-
-                                if shader_stage
-                                == spirv_reflect::types::ReflectShaderStage::TessellationEvaluation
-                            {
-                                layout_binding.stage_flags |=
-                                    ash::vk::ShaderStageFlags::TESSELLATION_EVALUATION;
-                            }
-
-                                if shader_stage
-                                    == spirv_reflect::types::ReflectShaderStage::Geometry
-                                {
-                                    layout_binding.stage_flags |=
-                                        ash::vk::ShaderStageFlags::GEOMETRY;
-                                }
-
-                                if shader_stage
-                                    == spirv_reflect::types::ReflectShaderStage::Fragment
-                                {
-                                    layout_binding.stage_flags |=
-                                        ash::vk::ShaderStageFlags::FRAGMENT;
-                                }
-
-                                if shader_stage == spirv_reflect::types::ReflectShaderStage::Compute
-                                {
-                                    layout_binding.stage_flags |=
-                                        ash::vk::ShaderStageFlags::COMPUTE;
-                                }
                                 layout_bindings.push(layout_binding);
                             }
                             set_layouts.push((reflected_set.set, layout_bindings));
@@ -1975,10 +1918,13 @@ impl RenderDevice for RenderDeviceVk {
 
                         let patched_spv = reflect_module.get_code();
 
-                        remapped_shaders[shader_idx] = Some(RayTracingShaderDesc {
-                            entry_point: desc.entry_point.clone(),
-                            shader_data: render_core::utilities::typed_to_bytes(patched_spv)
-                                .to_owned(),
+                        remapped_shaders[shader_idx] = Some(RenderRayTracingShaderVk {
+                            desc: RayTracingShaderDesc {
+                                entry_point: desc.entry_point.clone(),
+                                shader_data: render_core::utilities::typed_to_bytes(patched_spv)
+                                    .to_owned(),
+                            },
+                            set_layouts,
                         });
                     }
                     Err(err) => {
@@ -2438,7 +2384,77 @@ impl RenderDevice for RenderDeviceVk {
             .map(|prog| self.storage.get_typed::<RenderRayTracingProgramVk>(*prog))
             .collect::<Result<Vec<_>>>()?;
 
-        let descriptor_set_layout = unsafe {
+        let mut combined_layouts: Vec<DescriptorSetLayout> = Vec::new();
+
+        for program in desc.programs.iter() {
+            let program = self
+                .storage
+                .get_typed::<RenderRayTracingProgramVk>(*program)?;
+            for shader in program.shaders.iter().filter_map(|s| s.as_ref()) {
+                merge_descriptor_set_layouts(&shader.set_layouts, &mut combined_layouts);
+            }
+        }
+
+        // Make the set indices go in 0...N order
+        combined_layouts.sort_by(|ref a, ref b| a.set_index.cmp(&b.set_index));
+
+        // Create descriptor set layout objects
+        // TODO
+        /*for layout in &mut combined_layouts {
+            // Add in global static sampler bindings
+            for sampler_binding in &data.sampler_layouts {
+                layout.bindings.push(*sampler_binding);
+            }
+        }*/
+
+        let mut descriptor_layouts: Vec<ash::vk::DescriptorSetLayout> = vec![
+                ash::vk::DescriptorSetLayout::null();
+                MAX_SHADER_PARAMETERS * 2 + MAX_RAYGEN_SHADER_PARAMETERS * 2
+            ];
+
+        let mut pool_sizes = Vec::new();
+        for index in 0..combined_layouts.len() {
+            let mut combined_layout = &mut combined_layouts[index];
+            let create_info = ash::vk::DescriptorSetLayoutCreateInfo::builder()
+                .bindings(&combined_layout.bindings)
+                .build();
+
+            combined_layout.layout = unsafe {
+                raw_device
+                    .create_descriptor_set_layout(&create_info, None)
+                    .unwrap()
+            };
+
+            assert_eq!(
+                descriptor_layouts[combined_layout.set_index as usize],
+                ash::vk::DescriptorSetLayout::null()
+            );
+            descriptor_layouts[combined_layout.set_index as usize] = combined_layout.layout;
+            for binding in &combined_layout.bindings {
+                tally_descriptor_pool_sizes(&mut pool_sizes, binding.descriptor_type);
+            }
+        }
+
+        for descriptor_layout in descriptor_layouts[0..MAX_SHADER_PARAMETERS].iter_mut() {
+            if *descriptor_layout == ash::vk::DescriptorSetLayout::null() {
+                *descriptor_layout = self.empty_descriptor_set_layout;
+            }
+        }
+        for (idx, descriptor_layout) in descriptor_layouts
+            [MAX_SHADER_PARAMETERS..2 * MAX_SHADER_PARAMETERS]
+            .iter_mut()
+            .enumerate()
+        {
+            *descriptor_layout = self.cbuffer_descriptor_set_layouts[idx];
+        }
+
+        let raygen_descriptor_set_idx = 2 * MAX_SHADER_PARAMETERS;
+
+        // TODO
+        descriptor_layouts[raygen_descriptor_set_idx] = self.empty_descriptor_set_layout;
+        descriptor_layouts[raygen_descriptor_set_idx + 1] = self.cbuffer_descriptor_set_layouts[0];
+
+        /*let descriptor_set_layout = unsafe {
             raw_device
                 .create_descriptor_set_layout(
                     &ash::vk::DescriptorSetLayoutCreateInfo::builder()
@@ -2468,7 +2484,7 @@ impl RenderDevice for RenderDeviceVk {
                     None,
                 )
                 .unwrap()
-        };
+        };*/
 
         let create_shader_module =
             |desc: &RayTracingShaderDesc| -> Result<(ash::vk::ShaderModule, String)> {
@@ -2509,9 +2525,10 @@ impl RenderDevice for RenderDeviceVk {
                     raygen_found = true;
 
                     let (module, entry_point) = create_shader_module(
-                        program.shaders[RayTracingShaderType::RayGen as usize]
+                        &program.shaders[RayTracingShaderType::RayGen as usize]
                             .as_ref()
-                            .expect("raygen shader"),
+                            .expect("raygen shader")
+                            .desc,
                     )?;
 
                     entry_points.push(std::ffi::CString::new(entry_point).unwrap());
@@ -2539,9 +2556,10 @@ impl RenderDevice for RenderDeviceVk {
                     miss_found = true;
 
                     let (module, entry_point) = create_shader_module(
-                        program.shaders[RayTracingShaderType::Miss as usize]
+                        &program.shaders[RayTracingShaderType::Miss as usize]
                             .as_ref()
-                            .expect("miss shader"),
+                            .expect("miss shader")
+                            .desc,
                     )?;
 
                     entry_points.push(std::ffi::CString::new(entry_point).unwrap());
@@ -2568,9 +2586,10 @@ impl RenderDevice for RenderDeviceVk {
                     // TODO: procedural geometry
 
                     let (module, entry_point) = create_shader_module(
-                        program.shaders[RayTracingShaderType::ClosestHit as usize]
+                        &program.shaders[RayTracingShaderType::ClosestHit as usize]
                             .as_ref()
-                            .expect("closest hit shader"),
+                            .expect("closest hit shader")
+                            .desc,
                     )?;
 
                     entry_points.push(std::ffi::CString::new(entry_point).unwrap());
@@ -2603,8 +2622,8 @@ impl RenderDevice for RenderDeviceVk {
             "Must supply at least closest hit shader"
         );
 
-        let layouts = vec![descriptor_set_layout];
-        let layout_create_info = ash::vk::PipelineLayoutCreateInfo::builder().set_layouts(&layouts);
+        let layout_create_info =
+            ash::vk::PipelineLayoutCreateInfo::builder().set_layouts(&descriptor_layouts);
         let pipeline_layout = unsafe {
             raw_device
                 .create_pipeline_layout(&layout_create_info, None)
@@ -2630,8 +2649,14 @@ impl RenderDevice for RenderDeviceVk {
             Arc::new(RwLock::new(Box::new(RenderRayTracingPipelineStateVk {
                 name: debug_name.to_string().into(),
                 pipeline,
-                pipeline_layout,
-                descriptor_set_layout,
+                data: RenderPipelineLayoutVk {
+                    static_samplers: Vec::new(), // TODO
+                    pipeline_layout,
+                    combined_layouts,
+                    sampler_layouts: Vec::new(), // TODO
+                    pool_sizes,
+                },
+                descriptor_set_layouts: descriptor_layouts,
             })));
 
         self.storage.put(handle, resource)?;
@@ -2708,6 +2733,33 @@ impl RenderDevice for RenderDeviceVk {
         //dbg!(shader_group_handle_size);
         //dbg!(self.ray_tracing_properties.shader_group_base_alignment);
 
+        /*let descriptor_sets = unsafe {
+            let descriptor_pool_info = ash::vk::DescriptorPoolCreateInfo::builder()
+                .pool_sizes(&pipeline.data.pool_sizes)
+                .max_sets(pipeline.descriptor_set_layouts.len() as _);
+
+            let device = Arc::clone(&self.logical_device);
+            let raw_device = device.device();
+
+            let descriptor_pool = raw_device
+                .create_descriptor_pool(&descriptor_pool_info, None)
+                .unwrap();
+
+            raw_device
+                .allocate_descriptor_sets(
+                    &ash::vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(&pipeline.descriptor_set_layouts)
+                        .build(),
+                )
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to allocate pipeline {:?} from pool with sizes {:?}",
+                        pipeline.data.combined_layouts, pipeline.data.pool_sizes
+                    )
+                })
+        };*/
+
         let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> =
             Arc::new(RwLock::new(Box::new(RenderRayTracingShaderTableVk {
                 name: debug_name.to_string().into(),
@@ -2739,6 +2791,12 @@ impl RenderDevice for RenderDeviceVk {
                     stride: 0,
                     size: 0,
                 },
+                descriptor_sets: Default::default(),
+                cbuffer_descriptor_sets: Default::default(),
+                cbuffer_dynamic_offsets: vec![
+                    0u32;
+                    MAX_SHADER_PARAMETERS + MAX_RAYGEN_SHADER_PARAMETERS
+                ],
             })));
 
         self.storage.put(handle, resource)?;
@@ -2808,7 +2866,7 @@ impl RenderDevice for RenderDeviceVk {
                 let resource = resource_lock.read().unwrap();
                 let shader = resource.downcast_ref::<RenderShaderVk>().unwrap();
 
-                merge_descriptor_set_layouts(shader, &mut data.combined_layouts);
+                merge_descriptor_set_layouts(&shader.set_layouts, &mut data.combined_layouts);
 
                 let stage_info = ash::vk::PipelineShaderStageCreateInfo::builder()
                     .stage(get_shader_stage(stage))
@@ -3254,7 +3312,7 @@ impl RenderDevice for RenderDeviceVk {
         let stage_create_info = {
             let shader = shader_resource.downcast_ref::<RenderShaderVk>().unwrap();
 
-            merge_descriptor_set_layouts(shader, &mut data.combined_layouts);
+            merge_descriptor_set_layouts(&shader.set_layouts, &mut data.combined_layouts);
 
             ash::vk::PipelineShaderStageCreateInfo::builder()
                 .stage(get_shader_stage(RenderShaderType::Compute))
@@ -4772,5 +4830,42 @@ fn reflection_descriptor_to_vk(
             ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
         }
         _ => unimplemented!(),
+    }
+}
+
+fn reflection_shader_stage_to_vk(
+    refl: spirv_reflect::types::ReflectShaderStage,
+) -> ash::vk::ShaderStageFlags {
+    match refl {
+        spirv_reflect::types::ReflectShaderStage::Vertex => ash::vk::ShaderStageFlags::VERTEX,
+        spirv_reflect::types::ReflectShaderStage::TessellationControl => {
+            ash::vk::ShaderStageFlags::TESSELLATION_CONTROL
+        }
+        spirv_reflect::types::ReflectShaderStage::TessellationEvaluation => {
+            ash::vk::ShaderStageFlags::TESSELLATION_EVALUATION
+        }
+        spirv_reflect::types::ReflectShaderStage::Geometry => ash::vk::ShaderStageFlags::GEOMETRY,
+        spirv_reflect::types::ReflectShaderStage::Fragment => ash::vk::ShaderStageFlags::FRAGMENT,
+        spirv_reflect::types::ReflectShaderStage::Compute => ash::vk::ShaderStageFlags::COMPUTE,
+        spirv_reflect::types::ReflectShaderStage::Kernel => unimplemented!(),
+        spirv_reflect::types::ReflectShaderStage::TaskNV => ash::vk::ShaderStageFlags::TASK_NV,
+        spirv_reflect::types::ReflectShaderStage::MeshNV => ash::vk::ShaderStageFlags::MESH_NV,
+        spirv_reflect::types::ReflectShaderStage::RayGenerationNV => {
+            ash::vk::ShaderStageFlags::RAYGEN_KHR
+        }
+        spirv_reflect::types::ReflectShaderStage::IntersectionNV => {
+            ash::vk::ShaderStageFlags::INTERSECTION_KHR
+        }
+        spirv_reflect::types::ReflectShaderStage::AnyHitNV => {
+            ash::vk::ShaderStageFlags::ANY_HIT_KHR
+        }
+        spirv_reflect::types::ReflectShaderStage::ClosestHitNV => {
+            ash::vk::ShaderStageFlags::CLOSEST_HIT_KHR
+        }
+        spirv_reflect::types::ReflectShaderStage::MissNV => ash::vk::ShaderStageFlags::MISS_KHR,
+        spirv_reflect::types::ReflectShaderStage::CallableNV => {
+            ash::vk::ShaderStageFlags::CALLABLE_KHR
+        }
+        spirv_reflect::types::ReflectShaderStage::Undefined => unimplemented!(),
     }
 }

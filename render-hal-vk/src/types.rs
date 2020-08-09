@@ -320,8 +320,8 @@ impl RenderResourceBase for RenderPassVk {
 pub struct RenderRayTracingPipelineStateVk {
     pub name: Cow<'static, str>,
     pub pipeline: ash::vk::Pipeline,
-    pub pipeline_layout: ash::vk::PipelineLayout,
-    pub descriptor_set_layout: ash::vk::DescriptorSetLayout,
+    pub data: RenderPipelineLayoutVk,
+    pub descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout>, // TODO: nuke
 }
 
 impl RenderResourceBase for RenderRayTracingPipelineStateVk {
@@ -337,10 +337,19 @@ impl RenderResourceBase for RenderRayTracingPipelineStateVk {
 }
 
 #[derive(Clone, Debug)]
+pub struct RenderRayTracingShaderVk {
+    pub desc: RayTracingShaderDesc,
+    pub set_layouts: Vec<(
+        u32, /* set index */
+        Vec<ash::vk::DescriptorSetLayoutBinding>,
+    )>,
+}
+
+#[derive(Clone, Debug)]
 pub struct RenderRayTracingProgramVk {
     pub name: Cow<'static, str>,
     pub program_type: RayTracingProgramType,
-    pub shaders: [Option<RayTracingShaderDesc>; MAX_RAY_TRACING_SHADER_TYPE],
+    pub shaders: [Option<RenderRayTracingShaderVk>; MAX_RAY_TRACING_SHADER_TYPE],
 }
 
 impl RenderResourceBase for RenderRayTracingProgramVk {
@@ -421,6 +430,9 @@ pub struct RenderRayTracingShaderTableVk {
     pub hit_shader_binding_table: ash::vk::StridedBufferRegionKHR,
     pub callable_shader_binding_table_buffer: Option<crate::device::BufferResource>,
     pub callable_shader_binding_table: ash::vk::StridedBufferRegionKHR,
+    pub descriptor_sets: Vec<ash::vk::DescriptorSet>,
+    pub cbuffer_descriptor_sets: Vec<ash::vk::DescriptorSet>,
+    pub cbuffer_dynamic_offsets: Vec<u32>,
 }
 
 impl RenderResourceBase for RenderRayTracingShaderTableVk {

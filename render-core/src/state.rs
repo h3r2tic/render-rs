@@ -523,17 +523,19 @@ pub struct RenderBindingUnorderedAccessView {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct RenderShaderTableEntry {
-    pub program: RenderResourceHandle,
+pub struct RenderShaderTableUpdateEntry {
+    // Use None if not changing the bound program
+    pub program: Option<RenderResourceHandle>,
     pub shader_arguments: Vec<RenderShaderArgument>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RenderShaderTableUpdateDesc {
     // Must be less than or equal to the counts set at creation time
-    pub ray_gen_entries: Vec<RenderShaderTableEntry>,
-    pub hit_entries: Vec<RenderShaderTableEntry>,
-    pub miss_entries: Vec<RenderShaderTableEntry>,
+    pub ray_gen_entries: Vec<RenderShaderTableUpdateEntry>,
+    pub hit_entries: Vec<RenderShaderTableUpdateEntry>,
+    pub miss_entries: Vec<RenderShaderTableUpdateEntry>,
+    pub pipeline_state: RenderResourceHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

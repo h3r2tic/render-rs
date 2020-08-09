@@ -482,7 +482,6 @@ impl<'a> RenderCommandList<'a> {
         pipeline_state: RenderResourceHandle,
         shader_table: RenderResourceHandle,
         top_as: RenderResourceHandle,
-        rt_output: RenderResourceHandle, // TODO: Eliminate this once we have a better way to specify explicit transitions
         width: u32,
         height: u32,
         ray_gen_index: u32,
@@ -495,7 +494,6 @@ impl<'a> RenderCommandList<'a> {
                 pipeline_state,
                 shader_table,
                 top_as,
-                rt_output,
                 width,
                 height,
                 ray_gen_index,

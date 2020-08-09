@@ -4,7 +4,8 @@ use crate::types::get_image_layout;
 use crate::types::RenderBufferVk;
 use crate::types::RenderTextureVk;
 use crate::types::{
-    DescriptorSetLayout, RenderPipelineLayoutVk, RenderShaderViewsVk, RenderShaderVk,
+    DescriptorSetLayout, RenderPipelineLayoutVk, RenderRayTracingTopAccelerationVk,
+    RenderShaderViewsVk, RenderShaderVk,
 };
 use ash;
 use ash::version::DeviceV1_0;
@@ -75,10 +76,12 @@ pub fn find_layout_binding(layout: &DescriptorSetLayout, binding: u32) -> i32 {
 
 #[inline]
 pub fn merge_descriptor_set_layouts(
-    shader: &RenderShaderVk,
+    shader_layouts: &[(
+        u32, /* set index */
+        Vec<ash::vk::DescriptorSetLayoutBinding>,
+    )],
     combined_layouts: &mut Vec<DescriptorSetLayout>,
 ) {
-    let shader_layouts = &shader.set_layouts;
     for layout in shader_layouts {
         let set_index = layout.0;
         /*if set_index == SET_OFFSET {
@@ -161,38 +164,6 @@ impl DescriptorSetCache {
         }
     }
 
-    #[inline]
-    pub fn get_descriptor_image_layout(
-        &self,
-        resource: RenderResourceHandle,
-        resource_tracker: &mut HashMap<RenderResourceHandle, RenderResourceStates>,
-    ) -> ash::vk::ImageLayout {
-        // Only textures can have an image layout
-        let mut image_layout = ash::vk::ImageLayout::UNDEFINED;
-        if resource.get_type() == RenderResourceType::Texture {
-            image_layout = match resource_tracker.get(&resource) {
-                Some(&states) => {
-                    // Resource is in tracker, which means it is no longer
-                    // set to the default state
-                    get_image_layout(states)
-                }
-                None => {
-                    let resource_lock = self.storage.get(resource).unwrap();
-                    let resource = resource_lock.read().unwrap();
-                    let texture = resource.downcast_ref::<RenderTextureVk>().unwrap();
-                    // Use default state
-                    get_image_layout(texture.default_state)
-                }
-            };
-
-            /*println!(
-                "Memoized texture layout: {:?} - {:?}",
-                resource, image_layout
-            );*/
-        }
-        image_layout
-    }
-
     pub fn memoize(
         &self,
         resource_tracker: &mut HashMap<RenderResourceHandle, RenderResourceStates>,
@@ -208,7 +179,7 @@ impl DescriptorSetCache {
         for uav in &shader_views.uavs {
             let resource = uav.desc.base.resource;
             // TODO: non-image
-            let layout = self.get_descriptor_image_layout(resource, resource_tracker);
+            let layout = get_descriptor_image_layout(&self.storage, resource, resource_tracker);
             uav_hasher.write(&any_as_u8_slice(&layout));
         }
         let uav_layout_hash: u64 = uav_hasher.finish();
@@ -217,7 +188,7 @@ impl DescriptorSetCache {
         for srv in &shader_views.srvs {
             let resource = srv.desc.base.resource;
             // TODO: non-image
-            let layout = self.get_descriptor_image_layout(resource, resource_tracker);
+            let layout = get_descriptor_image_layout(&self.storage, resource, resource_tracker);
             srv_hasher.write(&any_as_u8_slice(&layout));
         }
         let srv_layout_hash: u64 = srv_hasher.finish();
@@ -282,167 +253,14 @@ impl DescriptorSetCache {
                         .unwrap()
                 }[0];
 
-                let binding_count = shader_views.srvs.len() + shader_views.uavs.len();
-
-                let mut writes: Vec<ash::vk::WriteDescriptorSet> =
-                    Vec::with_capacity(binding_count);
-                let mut texel_buffers: Vec<ash::vk::BufferView> = Vec::with_capacity(binding_count);
-                let mut buffer_info: Vec<ash::vk::DescriptorBufferInfo> =
-                    Vec::with_capacity(binding_count);
-                let mut image_info: Vec<ash::vk::DescriptorImageInfo> =
-                    Vec::with_capacity(binding_count);
-
-                // Update SRV descriptors
-                for srv_index in 0..shader_views.srvs.len() {
-                    let srv = &shader_views.srvs[srv_index];
-                    let binding_index = SRV_OFFSET + srv_index as u32;
-                    let mut layout_info: Option<ash::vk::DescriptorSetLayoutBinding> = None;
-                    for binding in &descriptor_layout.bindings {
-                        if binding.binding == binding_index {
-                            layout_info = Some(binding.clone());
-                            break;
-                        }
-                    }
-
-                    if let Some(layout_info) = layout_info {
-                        let mut write = ash::vk::WriteDescriptorSet::builder();
-
-                        match srv.desc.base.resource.get_type() {
-                            RenderResourceType::Buffer => {
-                                let resource_lock =
-                                    self.storage.get(srv.desc.base.resource).unwrap();
-                                let resource = resource_lock.read().unwrap();
-                                let buffer = resource.downcast_ref::<RenderBufferVk>().unwrap();
-                                if layout_info.descriptor_type
-                                    != ash::vk::DescriptorType::UNIFORM_TEXEL_BUFFER
-                                {
-                                    let slot = buffer_info.len();
-                                    buffer_info.push(ash::vk::DescriptorBufferInfo {
-                                        buffer: buffer.buffer,
-                                        offset: 0,
-                                        range: buffer.desc.size as u64,
-                                    });
-
-                                    write = write.buffer_info(&buffer_info[slot..slot + 1]);
-                                }
-                            }
-                            RenderResourceType::Texture => {
-                                let layout = self.get_descriptor_image_layout(
-                                    srv.desc.base.resource,
-                                    resource_tracker,
-                                );
-
-                                let slot = image_info.len();
-                                image_info.push(ash::vk::DescriptorImageInfo {
-                                    image_layout: layout,
-                                    image_view: srv.image_view,
-                                    ..Default::default()
-                                });
-
-                                write = write.image_info(&image_info[slot..slot + 1]);
-                            }
-                            _ => unimplemented!(),
-                        }
-
-                        write = write
-                            .dst_set(descriptor_set.descriptor_set)
-                            .dst_array_element(0)
-                            .dst_binding(binding_index)
-                            //.descriptor_count(1)
-                            .descriptor_type(layout_info.descriptor_type);
-
-                        if shader_views.srvs[srv_index].buffer_view != ash::vk::BufferView::null() {
-                            let texel_slot = texel_buffers.len() - 1;
-                            texel_buffers.push(shader_views.srvs[srv_index].buffer_view.clone());
-                            write =
-                                write.texel_buffer_view(&texel_buffers[texel_slot..texel_slot + 1]);
-                        }
-
-                        writes.push(write.build());
-                    } else {
-                        // This is usually a parameter specified in the arguments, but not used in the shader itself
-                        continue;
-                    }
-                }
-
-                // Update UAV descriptors
-                for uav_index in 0..shader_views.uavs.len() {
-                    let uav = &shader_views.uavs[uav_index];
-                    let binding_index = UAV_OFFSET + uav_index as u32;
-                    let mut layout_info: Option<ash::vk::DescriptorSetLayoutBinding> = None;
-                    for binding in &descriptor_layout.bindings {
-                        if binding.binding == binding_index {
-                            layout_info = Some(binding.clone());
-                            break;
-                        }
-                    }
-
-                    if let Some(layout_info) = layout_info {
-                        let mut write = ash::vk::WriteDescriptorSet::builder();
-
-                        match uav.desc.base.resource.get_type() {
-                            RenderResourceType::Buffer => {
-                                let resource_lock =
-                                    self.storage.get(uav.desc.base.resource).unwrap();
-                                let resource = resource_lock.read().unwrap();
-                                let buffer = resource.downcast_ref::<RenderBufferVk>().unwrap();
-                                if layout_info.descriptor_type
-                                    != ash::vk::DescriptorType::UNIFORM_TEXEL_BUFFER
-                                {
-                                    let slot = buffer_info.len();
-                                    buffer_info.push(ash::vk::DescriptorBufferInfo {
-                                        buffer: buffer.buffer,
-                                        offset: 0,
-                                        range: buffer.desc.size as u64,
-                                    });
-
-                                    write = write.buffer_info(&buffer_info[slot..slot + 1]);
-                                }
-                            }
-                            RenderResourceType::Texture => {
-                                let layout = self.get_descriptor_image_layout(
-                                    uav.desc.base.resource,
-                                    resource_tracker,
-                                );
-
-                                let slot = image_info.len();
-                                image_info.push(ash::vk::DescriptorImageInfo {
-                                    image_layout: layout,
-                                    image_view: uav.image_view,
-                                    ..Default::default()
-                                });
-
-                                write = write.image_info(&image_info[slot..slot + 1]);
-                            }
-                            _ => unimplemented!(),
-                        }
-
-                        write = write
-                            .dst_set(descriptor_set.descriptor_set)
-                            .dst_array_element(0)
-                            .dst_binding(binding_index)
-                            //.descriptor_count(1)
-                            .descriptor_type(layout_info.descriptor_type);
-
-                        if shader_views.uavs[uav_index].buffer_view != ash::vk::BufferView::null() {
-                            let texel_slot = texel_buffers.len() - 1;
-                            texel_buffers.push(shader_views.uavs[uav_index].buffer_view.clone());
-                            write =
-                                write.texel_buffer_view(&texel_buffers[texel_slot..texel_slot + 1]);
-                        }
-
-                        writes.push(write.build());
-                    } else {
-                        // This is usually a parameter specified in the arguments, but not used in the shader itself
-                        continue;
-                    }
-                }
-
-                if writes.len() > 0 {
-                    unsafe {
-                        device.device().update_descriptor_sets(&writes, &[]);
-                    }
-                }
+                update_descriptor_sets(
+                    device.device(),
+                    &*self.storage,
+                    resource_tracker,
+                    descriptor_set.descriptor_set,
+                    &descriptor_layout,
+                    shader_views,
+                );
 
                 shader_views
                     .cached_descriptor_sets
@@ -460,6 +278,231 @@ impl DescriptorSetCache {
 
 unsafe impl Send for DescriptorSetCache {}
 unsafe impl Sync for DescriptorSetCache {}
+
+#[inline]
+pub fn get_descriptor_image_layout(
+    storage: &RenderResourceStorage<Box<dyn RenderResourceBase>>,
+    resource: RenderResourceHandle,
+    resource_tracker: &mut HashMap<RenderResourceHandle, RenderResourceStates>,
+) -> ash::vk::ImageLayout {
+    // Only textures can have an image layout
+    let mut image_layout = ash::vk::ImageLayout::UNDEFINED;
+    if resource.get_type() == RenderResourceType::Texture {
+        image_layout = match resource_tracker.get(&resource) {
+            Some(&states) => {
+                // Resource is in tracker, which means it is no longer
+                // set to the default state
+                get_image_layout(states)
+            }
+            None => {
+                let resource_lock = storage.get(resource).unwrap();
+                let resource = resource_lock.read().unwrap();
+                let texture = resource.downcast_ref::<RenderTextureVk>().unwrap();
+                // Use default state
+                get_image_layout(texture.default_state)
+            }
+        };
+
+        /*println!(
+            "Memoized texture layout: {:?} - {:?}",
+            resource, image_layout
+        );*/
+    }
+    image_layout
+}
+
+fn update_descriptor_sets(
+    device: &ash::Device,
+    storage: &RenderResourceStorage<Box<dyn RenderResourceBase>>,
+    resource_tracker: &mut HashMap<RenderResourceHandle, RenderResourceStates>,
+    descriptor_set: ash::vk::DescriptorSet,
+    descriptor_layout: &DescriptorSetLayout,
+    shader_views: &mut RenderShaderViewsVk,
+) {
+    let binding_count = shader_views.srvs.len() + shader_views.uavs.len();
+
+    let mut writes: Vec<ash::vk::WriteDescriptorSet> = Vec::with_capacity(binding_count);
+    let mut texel_buffers: Vec<ash::vk::BufferView> = Vec::with_capacity(binding_count);
+    let mut buffer_info: Vec<ash::vk::DescriptorBufferInfo> = Vec::with_capacity(binding_count);
+    let mut image_info: Vec<ash::vk::DescriptorImageInfo> = Vec::with_capacity(binding_count);
+
+    let mut accel_info: Vec<ash::vk::WriteDescriptorSetAccelerationStructureKHR> =
+        Vec::with_capacity(binding_count);
+    let mut accel_structs: Vec<ash::vk::AccelerationStructureKHR> =
+        Vec::with_capacity(binding_count);
+
+    //dbg!(descriptor_layout);
+    //dbg!(&shader_views.srvs);
+
+    // Update SRV descriptors
+    for srv_index in 0..shader_views.srvs.len() {
+        let srv = &shader_views.srvs[srv_index];
+        let binding_index = SRV_OFFSET + srv_index as u32;
+        let mut layout_info: Option<ash::vk::DescriptorSetLayoutBinding> = None;
+        for binding in &descriptor_layout.bindings {
+            if binding.binding == binding_index {
+                layout_info = Some(binding.clone());
+                break;
+            }
+        }
+
+        if let Some(layout_info) = layout_info {
+            let mut write = ash::vk::WriteDescriptorSet::builder();
+
+            match srv.desc.base.resource.get_type() {
+                RenderResourceType::Buffer => {
+                    let resource_lock = storage.get(srv.desc.base.resource).unwrap();
+                    let resource = resource_lock.read().unwrap();
+                    let buffer = resource.downcast_ref::<RenderBufferVk>().unwrap();
+                    if layout_info.descriptor_type != ash::vk::DescriptorType::UNIFORM_TEXEL_BUFFER
+                    {
+                        let slot = buffer_info.len();
+                        buffer_info.push(ash::vk::DescriptorBufferInfo {
+                            buffer: buffer.buffer,
+                            offset: 0,
+                            range: buffer.desc.size as u64,
+                        });
+
+                        write = write.buffer_info(&buffer_info[slot..slot + 1]);
+                    }
+                }
+                RenderResourceType::Texture => {
+                    let layout = get_descriptor_image_layout(
+                        storage,
+                        srv.desc.base.resource,
+                        resource_tracker,
+                    );
+
+                    let slot = image_info.len();
+                    image_info.push(ash::vk::DescriptorImageInfo {
+                        image_layout: layout,
+                        image_view: srv.image_view,
+                        ..Default::default()
+                    });
+
+                    write = write.image_info(&image_info[slot..slot + 1]);
+                }
+                RenderResourceType::RayTracingTopAcceleration => {
+                    accel_structs.push(
+                        storage
+                            .get_typed::<RenderRayTracingTopAccelerationVk>(srv.desc.base.resource)
+                            .unwrap()
+                            .handle,
+                    );
+                    accel_info.push(
+                        ash::vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                            .acceleration_structures(std::slice::from_ref(
+                                accel_structs.last().unwrap(),
+                            ))
+                            .build(),
+                    );
+
+                    write = write.push_next(accel_info.last_mut().unwrap());
+
+                    // This is only set by the builder for images, buffers, or views; need to set explicitly after
+                    write.descriptor_count = 1;
+                }
+                _ => unimplemented!("{:?}", srv.desc.base.resource.get_type()),
+            }
+
+            write = write
+                .dst_set(descriptor_set)
+                .dst_array_element(0)
+                .dst_binding(binding_index)
+                //.descriptor_count(1)
+                .descriptor_type(layout_info.descriptor_type);
+
+            if shader_views.srvs[srv_index].buffer_view != ash::vk::BufferView::null() {
+                let texel_slot = texel_buffers.len() - 1;
+                texel_buffers.push(shader_views.srvs[srv_index].buffer_view.clone());
+                write = write.texel_buffer_view(&texel_buffers[texel_slot..texel_slot + 1]);
+            }
+
+            writes.push(write.build());
+        } else {
+            // This is usually a parameter specified in the arguments, but not used in the shader itself
+            continue;
+        }
+    }
+
+    // Update UAV descriptors
+    for uav_index in 0..shader_views.uavs.len() {
+        let uav = &shader_views.uavs[uav_index];
+        let binding_index = UAV_OFFSET + uav_index as u32;
+        let mut layout_info: Option<ash::vk::DescriptorSetLayoutBinding> = None;
+        for binding in &descriptor_layout.bindings {
+            if binding.binding == binding_index {
+                layout_info = Some(binding.clone());
+                break;
+            }
+        }
+
+        if let Some(layout_info) = layout_info {
+            let mut write = ash::vk::WriteDescriptorSet::builder();
+
+            match uav.desc.base.resource.get_type() {
+                RenderResourceType::Buffer => {
+                    let resource_lock = storage.get(uav.desc.base.resource).unwrap();
+                    let resource = resource_lock.read().unwrap();
+                    let buffer = resource.downcast_ref::<RenderBufferVk>().unwrap();
+                    if layout_info.descriptor_type != ash::vk::DescriptorType::UNIFORM_TEXEL_BUFFER
+                    {
+                        let slot = buffer_info.len();
+                        buffer_info.push(ash::vk::DescriptorBufferInfo {
+                            buffer: buffer.buffer,
+                            offset: 0,
+                            range: buffer.desc.size as u64,
+                        });
+
+                        write = write.buffer_info(&buffer_info[slot..slot + 1]);
+                    }
+                }
+                RenderResourceType::Texture => {
+                    let layout = get_descriptor_image_layout(
+                        storage,
+                        uav.desc.base.resource,
+                        resource_tracker,
+                    );
+
+                    let slot = image_info.len();
+                    image_info.push(ash::vk::DescriptorImageInfo {
+                        image_layout: layout,
+                        image_view: uav.image_view,
+                        ..Default::default()
+                    });
+
+                    write = write.image_info(&image_info[slot..slot + 1]);
+                }
+                _ => unimplemented!(),
+            }
+
+            write = write
+                .dst_set(descriptor_set)
+                .dst_array_element(0)
+                .dst_binding(binding_index)
+                //.descriptor_count(1)
+                .descriptor_type(layout_info.descriptor_type);
+
+            if shader_views.uavs[uav_index].buffer_view != ash::vk::BufferView::null() {
+                let texel_slot = texel_buffers.len() - 1;
+                texel_buffers.push(shader_views.uavs[uav_index].buffer_view.clone());
+                write = write.texel_buffer_view(&texel_buffers[texel_slot..texel_slot + 1]);
+            }
+
+            writes.push(write.build());
+        } else {
+            // This is usually a parameter specified in the arguments, but not used in the shader itself
+            continue;
+        }
+    }
+
+    if writes.len() > 0 {
+        //dbg!(&writes);
+        unsafe {
+            device.update_descriptor_sets(&writes, &[]);
+        }
+    }
+}
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct CachedCbufferDescriptorSetKey {

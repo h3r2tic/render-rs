@@ -932,158 +932,35 @@ impl RenderCompileContext {
             .storage
             .get_typed::<RenderRayTracingTopAccelerationVk>(typed_command.top_as)?;
 
-        let rt_output = &*self
-            .storage
-            .get_typed::<RenderTextureVk>(typed_command.rt_output)?;
-
         unsafe {
-            let descriptor_sizes = [
-                ash::vk::DescriptorPoolSize {
-                    ty: ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
-                    descriptor_count: 1,
-                },
-                ash::vk::DescriptorPoolSize {
-                    ty: ash::vk::DescriptorType::STORAGE_IMAGE,
-                    descriptor_count: 1,
-                },
-                /*ash::vk::DescriptorPoolSize {
-                    ty: ash::vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 3,
-                },*/
-            ];
-
-            let descriptor_pool_info = ash::vk::DescriptorPoolCreateInfo::builder()
-                .pool_sizes(&descriptor_sizes)
-                .max_sets(1);
-
-            let descriptor_pool = self
-                .device
-                .raw
-                .create_descriptor_pool(&descriptor_pool_info, None)
-                .unwrap();
-
-            let descriptor_sets = self
-                .device
-                .raw
-                .allocate_descriptor_sets(
-                    &ash::vk::DescriptorSetAllocateInfo::builder()
-                        .descriptor_pool(descriptor_pool)
-                        .set_layouts(&[pipeline.descriptor_set_layout])
-                        .build(),
-                )
-                .unwrap();
-            let descriptor_set = descriptor_sets[0];
-
-            let accel_structs = [top_as.handle];
-            let mut accel_info = ash::vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-                .acceleration_structures(&accel_structs)
-                .build();
-
-            let mut accel_write = ash::vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_set)
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_type(ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
-                .push_next(&mut accel_info)
-                .build();
-
-            // This is only set by the builder for images, buffers, or views; need to set explicitly after
-            accel_write.descriptor_count = 1;
-
-            // HACK
-            let image_view = {
-                let texture = rt_output;
-                let format = crate::raw::format::convert_format(
-                    texture.desc.format,
-                    false, /* typeless */
-                );
-
-                let image_view_create_info = ash::vk::ImageViewCreateInfo::builder()
-                    .format(format)
-                    .image(texture.image)
-                    .components(ash::vk::ComponentMapping {
-                        r: ash::vk::ComponentSwizzle::R,
-                        g: ash::vk::ComponentSwizzle::G,
-                        b: ash::vk::ComponentSwizzle::B,
-                        a: ash::vk::ComponentSwizzle::A,
-                    })
-                    .view_type(crate::ash::vk::ImageViewType::TYPE_2D)
-                    .subresource_range(ash::vk::ImageSubresourceRange {
-                        aspect_mask: ash::vk::ImageAspectFlags::COLOR,
-                        base_mip_level: 0,
-                        level_count: 1,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    })
-                    .build();
-
-                self.device
-                    .raw
-                    .create_image_view(&image_view_create_info, None)
-                    .unwrap()
-            };
-
-            let image_info = [ash::vk::DescriptorImageInfo::builder()
-                .image_layout(ash::vk::ImageLayout::GENERAL)
-                .image_view(image_view)
-                .build()];
-
-            let image_write = ash::vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_set)
-                .dst_binding(1)
-                .dst_array_element(0)
-                .descriptor_type(ash::vk::DescriptorType::STORAGE_IMAGE)
-                .image_info(&image_info)
-                .build();
-
-            // Update descriptors for bindless uniform buffers
-
-            /*let buffer0 = self.color0_buffer.as_ref().unwrap().buffer;
-            let buffer1 = self.color1_buffer.as_ref().unwrap().buffer;
-            let buffer2 = self.color2_buffer.as_ref().unwrap().buffer;
-
-            let buffer_info = [
-                ash::vk::DescriptorBufferInfo::builder()
-                    .buffer(buffer0)
-                    .range(ash::vk::WHOLE_SIZE)
-                    .build(),
-                ash::vk::DescriptorBufferInfo::builder()
-                    .buffer(buffer1)
-                    .range(ash::vk::WHOLE_SIZE)
-                    .build(),
-                ash::vk::DescriptorBufferInfo::builder()
-                    .buffer(buffer2)
-                    .range(ash::vk::WHOLE_SIZE)
-                    .build(),
-            ];
-
-            let buffers_write = ash::vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_set)
-                .dst_binding(2)
-                .dst_array_element(0)
-                .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&buffer_info)
-                .build();*/
-
-            self.device
-                .raw
-                .update_descriptor_sets(&[accel_write, image_write /*, buffers_write*/], &[]);
-
-            // ----
-
             self.device.raw.cmd_bind_pipeline(
                 native,
                 ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
                 pipeline.pipeline,
             );
-            self.device.raw.cmd_bind_descriptor_sets(
-                native,
-                ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
-                pipeline.pipeline_layout,
-                0,
-                &[descriptor_set],
-                &[],
-            );
+
+            if !sbt.descriptor_sets.is_empty() {
+                self.device.raw.cmd_bind_descriptor_sets(
+                    native,
+                    ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
+                    pipeline.data.pipeline_layout,
+                    0,
+                    &sbt.descriptor_sets,
+                    &sbt.cbuffer_dynamic_offsets,
+                );
+            }
+
+            if !sbt.cbuffer_descriptor_sets.is_empty() {
+                self.device.raw.cmd_bind_descriptor_sets(
+                    native,
+                    ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
+                    pipeline.data.pipeline_layout,
+                    SET_OFFSET,
+                    &sbt.cbuffer_descriptor_sets,
+                    &sbt.cbuffer_dynamic_offsets,
+                );
+            }
+
             self.ray_tracing.cmd_trace_rays(
                 native,
                 std::slice::from_ref(&sbt.raygen_shader_binding_table),
@@ -1131,10 +1008,77 @@ impl RenderCompileContext {
         native: ash::vk::CommandBuffer,
         command: &dyn RenderCommand,
     ) -> Result<()> {
-        error!("Calling update_shader_table - unimplemented");
         let command_ptr = command as *const dyn RenderCommand;
         let typed_command_ptr = command_ptr as *const RenderCommandUpdateShaderTable;
         let typed_command = unsafe { &*typed_command_ptr };
+
+        let pipeline_state = &*self
+            .storage
+            .get_typed::<RenderRayTracingPipelineStateVk>(typed_command.desc.pipeline_state)?;
+
+        let sbt = &mut *self
+            .storage
+            .get_typed_mut::<RenderRayTracingShaderTableVk>(typed_command.shader_table)?;
+
+        {
+            // TODO: just one array of shader arguments
+            let arguments = &typed_command.desc.ray_gen_entries[0].shader_arguments;
+            let layout_data = &pipeline_state.data;
+            let pipeline_layout = &layout_data.pipeline_layout;
+
+            // TODO: make sure set indices match
+
+            sbt.descriptor_sets.clear();
+
+            for (arg_index, arg) in arguments.iter().enumerate() {
+                if let Some(shader_views) = arg.shader_views {
+                    let shader_views = self.storage.get(shader_views)?;
+                    let mut shader_views = shader_views.write().unwrap();
+                    let mut shader_views =
+                        shader_views.downcast_mut::<RenderShaderViewsVk>().unwrap();
+                    let mut resource_tracker = self.resource_tracker.borrow_mut();
+
+                    let cached_descriptor_set = self.descriptor_cache.memoize(
+                        &mut resource_tracker,
+                        arg_index as u32,
+                        typed_command.desc.pipeline_state,
+                        &layout_data,
+                        &mut shader_views,
+                    );
+
+                    if let Some(entry) = cached_descriptor_set {
+                        assert_ne!(entry.descriptor_pool, ash::vk::DescriptorPool::null());
+                        assert_ne!(entry.descriptor_set, ash::vk::DescriptorSet::null());
+                        sbt.descriptor_sets.push(entry.descriptor_set);
+                    }
+                }
+            }
+
+            sbt.cbuffer_descriptor_sets.clear();
+            sbt.cbuffer_dynamic_offsets.clear();
+
+            // TODO: make sure set indices match
+
+            for (arg_index, arg) in arguments.iter().enumerate() {
+                if let Some(constant_buffer) = arg.constant_buffer {
+                    sbt.cbuffer_dynamic_offsets
+                        .push(arg.constant_buffer_offset as _);
+
+                    let cached_descriptor_set = self.cbuffer_descriptor_cache.memoize(
+                        arg_index as _,
+                        constant_buffer,
+                        &self.cbuffer_descriptor_set_layouts,
+                    );
+
+                    if let Some(entry) = cached_descriptor_set {
+                        assert_ne!(entry.descriptor_pool, ash::vk::DescriptorPool::null());
+                        assert_ne!(entry.descriptor_set, ash::vk::DescriptorSet::null());
+                        sbt.cbuffer_descriptor_sets.push(entry.descriptor_set);
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
