@@ -81,9 +81,11 @@ pub fn merge_descriptor_set_layouts(
     let shader_layouts = &shader.set_layouts;
     for layout in shader_layouts {
         let set_index = layout.0;
-        if set_index == SET_OFFSET {
+        /*if set_index == SET_OFFSET {
+            println!("{:#?}", combined_layouts);
+            panic!("what does this do? {:#?}", shader_layouts);
             continue;
-        }
+        }*/
 
         // Does combined layouts already contain this set?
         let mut combined_set_index: i32 = find_layout_set(combined_layouts, set_index);

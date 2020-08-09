@@ -339,7 +339,8 @@ impl RenderResourceBase for RenderRayTracingPipelineStateVk {
 #[derive(Clone, Debug)]
 pub struct RenderRayTracingProgramVk {
     pub name: Cow<'static, str>,
-    pub desc: RayTracingProgramDesc,
+    pub program_type: RayTracingProgramType,
+    pub shaders: [Option<RayTracingShaderDesc>; MAX_RAY_TRACING_SHADER_TYPE],
 }
 
 impl RenderResourceBase for RenderRayTracingProgramVk {

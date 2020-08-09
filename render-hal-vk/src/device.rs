@@ -43,7 +43,7 @@ use render_core::resources::{RenderResourceBase, RenderResourceStorage};
 use render_core::state::*;
 use render_core::types::*;
 use render_core::utilities::any_as_u8_slice;
-use spirv_reflect;
+use spirv_reflect::{self, types::resource::ReflectResourceTypeFlags};
 use std::hash::Hasher;
 use std::{
     borrow::Cow,
@@ -1409,55 +1409,52 @@ impl RenderDevice for RenderDeviceVk {
                     for (binding_index, binding) in set.binding_refs.iter().enumerate() {
                         let binding = &binding.value;
 
-                        assert_ne!(
-                            binding.resource_type,
-                            spirv_reflect::types::resource::ReflectResourceTypeFlags::UNDEFINED
-                        );
+                        assert_ne!(binding.resource_type, ReflectResourceTypeFlags::UNDEFINED);
                         match binding.resource_type {
-							spirv_reflect::types::resource::ReflectResourceTypeFlags::CONSTANT_BUFFER_VIEW => {
-								assert_eq!(binding.binding, 0);
-								remaps.push(BindingSetRemap {
-									binding_index: binding_index as u32,
-									old_binding: binding.binding,
-									new_binding: binding.binding,
-									old_set: set_index as u32,
-									new_set: SET_OFFSET + set_index as u32,
+                            ReflectResourceTypeFlags::CONSTANT_BUFFER_VIEW => {
+                                assert_eq!(binding.binding, 0);
+                                remaps.push(BindingSetRemap {
+                                    binding_index: binding_index as u32,
+                                    old_binding: binding.binding,
+                                    new_binding: binding.binding,
+                                    old_set: set_index as u32,
+                                    new_set: SET_OFFSET + set_index as u32,
                                 });
                                 // Make sure we don't use more spaces/sets than MAX_SHADER_PARAMETERS
                                 assert!(SET_OFFSET as usize + set_index >= descriptor_sets.len());
-                            },
-							spirv_reflect::types::resource::ReflectResourceTypeFlags::SHADER_RESOURCE_VIEW => {
-								remaps.push(BindingSetRemap {
-									binding_index: binding_index as u32,
-									old_binding: binding.binding,
-									new_binding: srv_count + SRV_OFFSET,
-									old_set: set_index as u32,
-									new_set: ARG_OFFSET + set_index as u32,
+                            }
+                            ReflectResourceTypeFlags::SHADER_RESOURCE_VIEW => {
+                                remaps.push(BindingSetRemap {
+                                    binding_index: binding_index as u32,
+                                    old_binding: binding.binding,
+                                    new_binding: srv_count + SRV_OFFSET,
+                                    old_set: set_index as u32,
+                                    new_set: ARG_OFFSET + set_index as u32,
                                 });
                                 srv_count += 1;
-							},
-							spirv_reflect::types::resource::ReflectResourceTypeFlags::SAMPLER => {
-								remaps.push(BindingSetRemap {
-									binding_index: binding_index as u32,
-									old_binding: binding.binding,
-									new_binding: smp_count + SMP_OFFSET,
-									old_set: set_index as u32,
-									new_set: ARG_OFFSET + set_index as u32,
+                            }
+                            ReflectResourceTypeFlags::SAMPLER => {
+                                remaps.push(BindingSetRemap {
+                                    binding_index: binding_index as u32,
+                                    old_binding: binding.binding,
+                                    new_binding: smp_count + SMP_OFFSET,
+                                    old_set: set_index as u32,
+                                    new_set: ARG_OFFSET + set_index as u32,
                                 });
                                 smp_count += 1;
-							},
-							spirv_reflect::types::resource::ReflectResourceTypeFlags::UNORDERED_ACCESS_VIEW => {
-								remaps.push(BindingSetRemap {
-									binding_index: binding_index as u32,
-									old_binding: binding.binding,
-									new_binding: uav_count + UAV_OFFSET,
-									old_set: set_index as u32,
-									new_set: ARG_OFFSET + set_index as u32,
+                            }
+                            ReflectResourceTypeFlags::UNORDERED_ACCESS_VIEW => {
+                                remaps.push(BindingSetRemap {
+                                    binding_index: binding_index as u32,
+                                    old_binding: binding.binding,
+                                    new_binding: uav_count + UAV_OFFSET,
+                                    old_set: set_index as u32,
+                                    new_set: ARG_OFFSET + set_index as u32,
                                 });
                                 uav_count += 1;
-							},
-							_ => unimplemented!(),
-						}
+                            }
+                            _ => unimplemented!(),
+                        }
                     }
 
                     for remap in &remaps {
@@ -1497,42 +1494,8 @@ impl RenderDevice for RenderDeviceVk {
 
                         let mut layout_binding = ash::vk::DescriptorSetLayoutBinding::default();
                         layout_binding.binding = reflected_binding.binding;
-                        layout_binding.descriptor_type = match reflected_binding.descriptor_type {
-                            spirv_reflect::types::ReflectDescriptorType::Sampler => {
-                                ash::vk::DescriptorType::SAMPLER
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::CombinedImageSampler => {
-                                ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::SampledImage => {
-                                ash::vk::DescriptorType::SAMPLED_IMAGE
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::StorageImage => {
-                                ash::vk::DescriptorType::STORAGE_IMAGE
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::UniformTexelBuffer => {
-                                ash::vk::DescriptorType::UNIFORM_TEXEL_BUFFER
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::StorageTexelBuffer => {
-                                ash::vk::DescriptorType::STORAGE_TEXEL_BUFFER
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::UniformBuffer => {
-                                ash::vk::DescriptorType::UNIFORM_BUFFER
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::StorageBuffer => {
-                                ash::vk::DescriptorType::STORAGE_BUFFER
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::UniformBufferDynamic => {
-                                ash::vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::StorageBufferDynamic => {
-                                ash::vk::DescriptorType::STORAGE_BUFFER_DYNAMIC
-                            }
-                            spirv_reflect::types::ReflectDescriptorType::InputAttachment => {
-                                ash::vk::DescriptorType::INPUT_ATTACHMENT
-                            }
-                            _ => unimplemented!(),
-                        };
+                        layout_binding.descriptor_type =
+                            reflection_descriptor_to_vk(reflected_binding.descriptor_type);
 
                         layout_binding.descriptor_count = 1;
                         for dim in &reflected_binding.array.dims {
@@ -1606,7 +1569,7 @@ impl RenderDevice for RenderDeviceVk {
                 }
             }
             Err(err) => Err(Error::backend(format!(
-                "failed to parse shader - {:?}",
+                "failed to parse shader - {:#?}",
                 err
             ))),
         }
@@ -1835,10 +1798,204 @@ impl RenderDevice for RenderDeviceVk {
         // need to have their layouts merged in the context of a ray-tracing pipeline.
         // This just persists the desc for use in `create_ray_tracing_pipeline_state`
 
+        let device = Arc::clone(&self.logical_device);
+        let raw_device = device.device();
+
+        let mut remapped_shaders: [Option<RayTracingShaderDesc>; MAX_RAY_TRACING_SHADER_TYPE] =
+            [None, None, None, None, None];
+
+        for (shader_idx, desc) in desc.shaders.iter().enumerate() {
+            if let Some(desc) = desc {
+                let mut remaps: Vec<BindingSetRemap> = Vec::new();
+                match spirv_reflect::ShaderModule::load_u8_data(&desc.shader_data) {
+                    Ok(mut reflect_module) => {
+                        let mut srv_count = 0;
+                        let mut smp_count = 0;
+                        let mut uav_count = 0;
+
+                        let descriptor_sets =
+                            reflect_module.enumerate_descriptor_sets(None).unwrap();
+                        trace!("Shader descriptor sets: {:#?}", descriptor_sets);
+
+                        for set_index in 0..descriptor_sets.len() {
+                            let set = &descriptor_sets[set_index].value;
+
+                            for (binding_index, binding) in set.binding_refs.iter().enumerate() {
+                                let binding = &binding.value;
+
+                                assert_ne!(
+                                    binding.resource_type,
+                                    ReflectResourceTypeFlags::UNDEFINED
+                                );
+
+                                match binding.resource_type {
+                                    ReflectResourceTypeFlags::CONSTANT_BUFFER_VIEW => {
+                                        assert_eq!(binding.binding, 0);
+                                        remaps.push(BindingSetRemap {
+                                            binding_index: binding_index as u32,
+                                            old_binding: binding.binding,
+                                            new_binding: binding.binding,
+                                            old_set: set_index as u32,
+                                            new_set: SET_OFFSET + set_index as u32,
+                                        });
+                                        // Make sure we don't use more spaces/sets than MAX_SHADER_PARAMETERS
+                                        assert!(
+                                            SET_OFFSET as usize + set_index
+                                                >= descriptor_sets.len()
+                                        );
+                                    }
+                                    ReflectResourceTypeFlags::SHADER_RESOURCE_VIEW => {
+                                        remaps.push(BindingSetRemap {
+                                            binding_index: binding_index as u32,
+                                            old_binding: binding.binding,
+                                            new_binding: srv_count + SRV_OFFSET,
+                                            old_set: set_index as u32,
+                                            new_set: ARG_OFFSET + set_index as u32,
+                                        });
+                                        srv_count += 1;
+                                    }
+                                    ReflectResourceTypeFlags::SAMPLER => {
+                                        remaps.push(BindingSetRemap {
+                                            binding_index: binding_index as u32,
+                                            old_binding: binding.binding,
+                                            new_binding: smp_count + SMP_OFFSET,
+                                            old_set: set_index as u32,
+                                            new_set: ARG_OFFSET + set_index as u32,
+                                        });
+                                        smp_count += 1;
+                                    }
+                                    ReflectResourceTypeFlags::UNORDERED_ACCESS_VIEW => {
+                                        /*remaps.push(BindingSetRemap {
+                                            binding_index: binding_index as u32,
+                                            old_binding: binding.binding,
+                                            new_binding: uav_count + UAV_OFFSET,
+                                            old_set: set_index as u32,
+                                            new_set: ARG_OFFSET + set_index as u32,
+                                        });
+                                        uav_count += 1;*/
+                                        // TODO
+                                    }
+                                    ReflectResourceTypeFlags::ACCELERATION_STRUCTURE => {
+                                        // TODO
+                                    }
+                                    _ => unimplemented!(),
+                                }
+                            }
+
+                            for remap in &remaps {
+                                let binding = &set.binding_refs[remap.binding_index as usize];
+                                match reflect_module.change_descriptor_binding_numbers(
+                                    binding,
+                                    Some(remap.new_binding),
+                                    Some(remap.new_set),
+                                ) {
+                                    Ok(_) => {}
+                                    Err(err) => {
+                                        return Err(Error::backend(format!(
+                                            "failed to patch descriptor binding - {:?}",
+                                            err
+                                        )));
+                                    }
+                                }
+                            }
+                        }
+
+                        // Create descriptor set layouts
+                        let descriptor_sets =
+                            reflect_module.enumerate_descriptor_sets(None).unwrap();
+                        let mut set_layouts: Vec<(
+                            u32, /* set index */
+                            Vec<ash::vk::DescriptorSetLayoutBinding>,
+                        )> = Vec::with_capacity(descriptor_sets.len());
+                        for set_index in 0..descriptor_sets.len() {
+                            let reflected_set = &descriptor_sets[set_index].value;
+
+                            let mut layout_bindings: Vec<ash::vk::DescriptorSetLayoutBinding> =
+                                Vec::with_capacity(reflected_set.binding_refs.len());
+
+                            for (binding_index, reflected_binding) in
+                                reflected_set.binding_refs.iter().enumerate()
+                            {
+                                let reflected_binding = &reflected_binding.value;
+
+                                let mut layout_binding =
+                                    ash::vk::DescriptorSetLayoutBinding::default();
+                                layout_binding.binding = reflected_binding.binding;
+                                layout_binding.descriptor_type =
+                                    reflection_descriptor_to_vk(reflected_binding.descriptor_type);
+
+                                layout_binding.descriptor_count = 1;
+                                for dim in &reflected_binding.array.dims {
+                                    layout_binding.descriptor_count *= dim;
+                                }
+
+                                let shader_stage = reflect_module.get_shader_stage();
+                                if shader_stage == spirv_reflect::types::ReflectShaderStage::Vertex
+                                {
+                                    layout_binding.stage_flags |= ash::vk::ShaderStageFlags::VERTEX;
+                                }
+
+                                if shader_stage
+                                    == spirv_reflect::types::ReflectShaderStage::TessellationControl
+                                {
+                                    layout_binding.stage_flags |=
+                                        ash::vk::ShaderStageFlags::TESSELLATION_CONTROL;
+                                }
+
+                                if shader_stage
+                                == spirv_reflect::types::ReflectShaderStage::TessellationEvaluation
+                            {
+                                layout_binding.stage_flags |=
+                                    ash::vk::ShaderStageFlags::TESSELLATION_EVALUATION;
+                            }
+
+                                if shader_stage
+                                    == spirv_reflect::types::ReflectShaderStage::Geometry
+                                {
+                                    layout_binding.stage_flags |=
+                                        ash::vk::ShaderStageFlags::GEOMETRY;
+                                }
+
+                                if shader_stage
+                                    == spirv_reflect::types::ReflectShaderStage::Fragment
+                                {
+                                    layout_binding.stage_flags |=
+                                        ash::vk::ShaderStageFlags::FRAGMENT;
+                                }
+
+                                if shader_stage == spirv_reflect::types::ReflectShaderStage::Compute
+                                {
+                                    layout_binding.stage_flags |=
+                                        ash::vk::ShaderStageFlags::COMPUTE;
+                                }
+                                layout_bindings.push(layout_binding);
+                            }
+                            set_layouts.push((reflected_set.set, layout_bindings));
+                        }
+
+                        let patched_spv = reflect_module.get_code();
+
+                        remapped_shaders[shader_idx] = Some(RayTracingShaderDesc {
+                            entry_point: desc.entry_point.clone(),
+                            shader_data: render_core::utilities::typed_to_bytes(patched_spv)
+                                .to_owned(),
+                        });
+                    }
+                    Err(err) => {
+                        return Err(Error::backend(format!(
+                            "failed to parse shader - {:#?}",
+                            err
+                        )))
+                    }
+                }
+            }
+        }
+
         let resource: Arc<RwLock<Box<dyn RenderResourceBase>>> =
             Arc::new(RwLock::new(Box::new(RenderRayTracingProgramVk {
                 name: debug_name.to_string().into(),
-                desc: desc.clone(),
+                program_type: desc.program_type,
+                shaders: remapped_shaders,
             })));
 
         self.storage.put(handle, resource)?;
@@ -1906,8 +2063,6 @@ impl RenderDevice for RenderDeviceVk {
             })
             .collect();
 
-        dbg!(&instances);
-
         let instance_buffer_size = std::mem::size_of::<GeometryInstance>() * instances.len();
         let mut instance_buffer = BufferResource::new(
             instance_buffer_size as u64,
@@ -1952,7 +2107,7 @@ impl RenderDevice for RenderDeviceVk {
                 requirements.memory_requirements.size
             };
 
-            println!("TLAS scratch size: {}", scratch_buffer_size);
+            trace!("TLAS scratch size: {}", scratch_buffer_size);
 
             let scratch_buffer = BufferResource::new(
                 scratch_buffer_size,
@@ -2036,9 +2191,9 @@ impl RenderDevice for RenderDeviceVk {
                 )?;
 
                 match vk_device.queue_wait_idle(*queue.read().unwrap()) {
-                    Ok(_) => println!("Successfully built top acceleration structures"),
+                    Ok(_) => info!("Successfully built top acceleration structures"),
                     Err(err) => {
-                        println!("Failed to build top acceleration structures: {:?}", err);
+                        error!("Failed to build top acceleration structures: {:?}", err);
                         panic!("GPU ERROR");
                     }
                 }
@@ -2175,7 +2330,7 @@ impl RenderDevice for RenderDeviceVk {
                 requirements.memory_requirements.size
             };
 
-            println!("BLAS scratch size: {}", scratch_buffer_size);
+            trace!("BLAS scratch size: {}", scratch_buffer_size);
 
             let scratch_buffer = BufferResource::new(
                 scratch_buffer_size,
@@ -2242,9 +2397,9 @@ impl RenderDevice for RenderDeviceVk {
                 )?;
 
                 match vk_device.queue_wait_idle(*queue.read().unwrap()) {
-                    Ok(_) => println!("Successfully built bottom acceleration structures"),
+                    Ok(_) => info!("Successfully built bottom acceleration structures"),
                     Err(err) => {
-                        println!("Failed to build bottom acceleration structures: {:?}", err);
+                        error!("Failed to build bottom acceleration structures: {:?}", err);
                         panic!("GPU ERROR");
                     }
                 }
@@ -2348,13 +2503,13 @@ impl RenderDevice for RenderDeviceVk {
 
         for program in programs {
             let program = &*program;
-            match program.desc.program_type {
+            match program.program_type {
                 RayTracingProgramType::RayGen => {
                     assert!(!raygen_found, "only one raygen shader supported right now");
                     raygen_found = true;
 
                     let (module, entry_point) = create_shader_module(
-                        program.desc.shaders[RayTracingShaderType::RayGen as usize]
+                        program.shaders[RayTracingShaderType::RayGen as usize]
                             .as_ref()
                             .expect("raygen shader"),
                     )?;
@@ -2384,7 +2539,7 @@ impl RenderDevice for RenderDeviceVk {
                     miss_found = true;
 
                     let (module, entry_point) = create_shader_module(
-                        program.desc.shaders[RayTracingShaderType::Miss as usize]
+                        program.shaders[RayTracingShaderType::Miss as usize]
                             .as_ref()
                             .expect("miss shader"),
                     )?;
@@ -2413,7 +2568,7 @@ impl RenderDevice for RenderDeviceVk {
                     // TODO: procedural geometry
 
                     let (module, entry_point) = create_shader_module(
-                        program.desc.shaders[RayTracingShaderType::ClosestHit as usize]
+                        program.shaders[RayTracingShaderType::ClosestHit as usize]
                             .as_ref()
                             .expect("closest hit shader"),
                     )?;
@@ -3084,7 +3239,7 @@ impl RenderDevice for RenderDeviceVk {
             let sampler_info = make_vulkan_sampler(sampler_state);
             let sampler = unsafe { raw_device.create_sampler(&sampler_info, None).unwrap() };
             let sampler_binding = ash::vk::DescriptorSetLayoutBinding::builder()
-                .stage_flags(ash::vk::ShaderStageFlags::ALL_GRAPHICS)
+                .stage_flags(ash::vk::ShaderStageFlags::COMPUTE)
                 .descriptor_type(ash::vk::DescriptorType::SAMPLER)
                 .descriptor_count(1)
                 .binding(SMP_OFFSET + sampler_index)
@@ -4575,5 +4730,47 @@ impl Drop for BufferResource {
 impl std::fmt::Debug for BufferResource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("BufferResource")
+    }
+}
+
+fn reflection_descriptor_to_vk(
+    refl: spirv_reflect::types::ReflectDescriptorType,
+) -> ash::vk::DescriptorType {
+    match refl {
+        spirv_reflect::types::ReflectDescriptorType::Sampler => ash::vk::DescriptorType::SAMPLER,
+        spirv_reflect::types::ReflectDescriptorType::CombinedImageSampler => {
+            ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER
+        }
+        spirv_reflect::types::ReflectDescriptorType::SampledImage => {
+            ash::vk::DescriptorType::SAMPLED_IMAGE
+        }
+        spirv_reflect::types::ReflectDescriptorType::StorageImage => {
+            ash::vk::DescriptorType::STORAGE_IMAGE
+        }
+        spirv_reflect::types::ReflectDescriptorType::UniformTexelBuffer => {
+            ash::vk::DescriptorType::UNIFORM_TEXEL_BUFFER
+        }
+        spirv_reflect::types::ReflectDescriptorType::StorageTexelBuffer => {
+            ash::vk::DescriptorType::STORAGE_TEXEL_BUFFER
+        }
+        spirv_reflect::types::ReflectDescriptorType::UniformBuffer => {
+            ash::vk::DescriptorType::UNIFORM_BUFFER
+        }
+        spirv_reflect::types::ReflectDescriptorType::StorageBuffer => {
+            ash::vk::DescriptorType::STORAGE_BUFFER
+        }
+        spirv_reflect::types::ReflectDescriptorType::UniformBufferDynamic => {
+            ash::vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC
+        }
+        spirv_reflect::types::ReflectDescriptorType::StorageBufferDynamic => {
+            ash::vk::DescriptorType::STORAGE_BUFFER_DYNAMIC
+        }
+        spirv_reflect::types::ReflectDescriptorType::InputAttachment => {
+            ash::vk::DescriptorType::INPUT_ATTACHMENT
+        }
+        spirv_reflect::types::ReflectDescriptorType::AccelerationStructure => {
+            ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
+        }
+        _ => unimplemented!(),
     }
 }
