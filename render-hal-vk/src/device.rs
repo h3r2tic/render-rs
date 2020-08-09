@@ -697,7 +697,7 @@ impl RenderDevice for RenderDeviceVk {
                 let _resource = resource
                     .downcast_mut::<RenderRayTracingProgramVk>()
                     .unwrap();
-                unimplemented!()
+                // Nothing to do
             }
             RenderResourceType::RayTracingBottomAcceleration => {
                 let _resource = resource
