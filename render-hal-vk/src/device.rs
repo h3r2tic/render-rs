@@ -2424,10 +2424,8 @@ impl RenderDevice for RenderDeviceVk {
             }
         }*/
 
-        let mut descriptor_layouts: Vec<ash::vk::DescriptorSetLayout> = vec![
-                ash::vk::DescriptorSetLayout::null();
-                MAX_SHADER_PARAMETERS * 2 + MAX_RAYGEN_SHADER_PARAMETERS * 2
-            ];
+        let mut descriptor_layouts: Vec<ash::vk::DescriptorSetLayout> =
+            vec![ash::vk::DescriptorSetLayout::null(); MAX_SHADER_PARAMETERS * 2];
 
         let mut pool_sizes = Vec::new();
         for index in 0..combined_layouts.len() {
@@ -2464,44 +2462,6 @@ impl RenderDevice for RenderDeviceVk {
         {
             *descriptor_layout = self.cbuffer_descriptor_set_layouts[idx];
         }
-
-        let raygen_descriptor_set_idx = 2 * MAX_SHADER_PARAMETERS;
-
-        // TODO
-        descriptor_layouts[raygen_descriptor_set_idx] = self.empty_descriptor_set_layout;
-        descriptor_layouts[raygen_descriptor_set_idx + 1] = self.cbuffer_descriptor_set_layouts[0];
-
-        /*let descriptor_set_layout = unsafe {
-            raw_device
-                .create_descriptor_set_layout(
-                    &ash::vk::DescriptorSetLayoutCreateInfo::builder()
-                        .bindings(&[
-                            ash::vk::DescriptorSetLayoutBinding::builder()
-                                .descriptor_count(1)
-                                .descriptor_type(
-                                    ash::vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
-                                )
-                                .stage_flags(ash::vk::ShaderStageFlags::RAYGEN_KHR)
-                                .binding(0)
-                                .build(),
-                            ash::vk::DescriptorSetLayoutBinding::builder()
-                                .descriptor_count(1)
-                                .descriptor_type(ash::vk::DescriptorType::STORAGE_IMAGE)
-                                .stage_flags(ash::vk::ShaderStageFlags::RAYGEN_KHR)
-                                .binding(1)
-                                .build(),
-                            /*ash::vk::DescriptorSetLayoutBinding::builder()
-                            .descriptor_count(3)
-                            .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
-                            .stage_flags(ash::vk::ShaderStageFlags::CLOSEST_HIT_KHR)
-                            .binding(2)
-                            .build(),*/
-                        ])
-                        .build(),
-                    None,
-                )
-                .unwrap()
-        };*/
 
         let create_shader_module =
             |desc: &RayTracingShaderDesc| -> Result<(ash::vk::ShaderModule, String)> {
@@ -2808,12 +2768,6 @@ impl RenderDevice for RenderDeviceVk {
                     stride: 0,
                     size: 0,
                 },
-                descriptor_sets: Default::default(),
-                cbuffer_descriptor_sets: Default::default(),
-                cbuffer_dynamic_offsets: vec![
-                    0u32;
-                    MAX_SHADER_PARAMETERS + MAX_RAYGEN_SHADER_PARAMETERS
-                ],
             })));
 
         self.storage.put(handle, resource)?;

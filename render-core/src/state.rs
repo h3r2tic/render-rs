@@ -524,9 +524,8 @@ pub struct RenderBindingUnorderedAccessView {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RenderShaderTableUpdateEntry {
-    // Use None if not changing the bound program
-    pub program: Option<RenderResourceHandle>,
-    pub shader_arguments: Vec<RenderShaderArgument>,
+    pub program: RenderResourceHandle,
+    // TODO(?): support "shader record" shader table entries
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

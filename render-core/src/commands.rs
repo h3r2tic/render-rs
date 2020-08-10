@@ -622,11 +622,12 @@ impl RenderCommand for RenderCommandEndRenderPass {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderCommandRayTrace {
     pub pipeline_state: RenderResourceHandle,
     pub shader_table: RenderResourceHandle,
     pub top_as: RenderResourceHandle,
+    pub shader_arguments: Vec<RenderShaderArgument>,
     pub width: u32,
     pub height: u32,
     pub ray_gen_index: u32,
@@ -637,6 +638,7 @@ impl RenderCommandRayTrace {
         pipeline_state: RenderResourceHandle,
         shader_table: RenderResourceHandle,
         top_as: RenderResourceHandle,
+        shader_arguments: &[RenderShaderArgument],
         width: u32,
         height: u32,
         ray_gen_index: u32,
@@ -645,6 +647,7 @@ impl RenderCommandRayTrace {
             pipeline_state,
             shader_table,
             top_as,
+            shader_arguments: shader_arguments.to_vec(),
             width,
             height,
             ray_gen_index,

@@ -832,6 +832,7 @@ fn record_ray_trace() {
             pipeline_state_handle,
             shader_table_handle,
             top_as,
+            &[],
             123,
             456,
             789

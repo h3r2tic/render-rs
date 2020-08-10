@@ -939,27 +939,13 @@ impl RenderCompileContext {
                 pipeline.pipeline,
             );
 
-            if !sbt.descriptor_sets.is_empty() {
-                self.device.raw.cmd_bind_descriptor_sets(
-                    native,
-                    ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
-                    pipeline.data.pipeline_layout,
-                    0,
-                    &sbt.descriptor_sets,
-                    &sbt.cbuffer_dynamic_offsets,
-                );
-            }
-
-            if !sbt.cbuffer_descriptor_sets.is_empty() {
-                self.device.raw.cmd_bind_descriptor_sets(
-                    native,
-                    ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
-                    pipeline.data.pipeline_layout,
-                    SET_OFFSET,
-                    &sbt.cbuffer_descriptor_sets,
-                    &sbt.cbuffer_dynamic_offsets,
-                );
-            }
+            self.apply_shader_arguments(
+                native,
+                typed_command.pipeline_state,
+                &pipeline.data,
+                ash::vk::PipelineBindPoint::RAY_TRACING_KHR,
+                &typed_command.shader_arguments,
+            )?;
 
             self.ray_tracing.cmd_trace_rays(
                 native,
@@ -1008,78 +994,7 @@ impl RenderCompileContext {
         native: ash::vk::CommandBuffer,
         command: &dyn RenderCommand,
     ) -> Result<()> {
-        let command_ptr = command as *const dyn RenderCommand;
-        let typed_command_ptr = command_ptr as *const RenderCommandUpdateShaderTable;
-        let typed_command = unsafe { &*typed_command_ptr };
-
-        let pipeline_state = &*self
-            .storage
-            .get_typed::<RenderRayTracingPipelineStateVk>(typed_command.desc.pipeline_state)?;
-
-        let sbt = &mut *self
-            .storage
-            .get_typed_mut::<RenderRayTracingShaderTableVk>(typed_command.shader_table)?;
-
-        {
-            // TODO: just one array of shader arguments
-            let arguments = &typed_command.desc.ray_gen_entries[0].shader_arguments;
-            let layout_data = &pipeline_state.data;
-            let pipeline_layout = &layout_data.pipeline_layout;
-
-            // TODO: make sure set indices match
-
-            sbt.descriptor_sets.clear();
-
-            for (arg_index, arg) in arguments.iter().enumerate() {
-                if let Some(shader_views) = arg.shader_views {
-                    let shader_views = self.storage.get(shader_views)?;
-                    let mut shader_views = shader_views.write().unwrap();
-                    let mut shader_views =
-                        shader_views.downcast_mut::<RenderShaderViewsVk>().unwrap();
-                    let mut resource_tracker = self.resource_tracker.borrow_mut();
-
-                    let cached_descriptor_set = self.descriptor_cache.memoize(
-                        &mut resource_tracker,
-                        arg_index as u32,
-                        typed_command.desc.pipeline_state,
-                        &layout_data,
-                        &mut shader_views,
-                    );
-
-                    if let Some(entry) = cached_descriptor_set {
-                        assert_ne!(entry.descriptor_pool, ash::vk::DescriptorPool::null());
-                        assert_ne!(entry.descriptor_set, ash::vk::DescriptorSet::null());
-                        sbt.descriptor_sets.push(entry.descriptor_set);
-                    }
-                }
-            }
-
-            sbt.cbuffer_descriptor_sets.clear();
-            sbt.cbuffer_dynamic_offsets.clear();
-
-            // TODO: make sure set indices match
-
-            for (arg_index, arg) in arguments.iter().enumerate() {
-                if let Some(constant_buffer) = arg.constant_buffer {
-                    sbt.cbuffer_dynamic_offsets
-                        .push(arg.constant_buffer_offset as _);
-
-                    let cached_descriptor_set = self.cbuffer_descriptor_cache.memoize(
-                        arg_index as _,
-                        constant_buffer,
-                        &self.cbuffer_descriptor_set_layouts,
-                    );
-
-                    if let Some(entry) = cached_descriptor_set {
-                        assert_ne!(entry.descriptor_pool, ash::vk::DescriptorPool::null());
-                        assert_ne!(entry.descriptor_set, ash::vk::DescriptorSet::null());
-                        sbt.cbuffer_descriptor_sets.push(entry.descriptor_set);
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        todo!()
     }
 
     #[inline]

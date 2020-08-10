@@ -430,9 +430,6 @@ pub struct RenderRayTracingShaderTableVk {
     pub hit_shader_binding_table: ash::vk::StridedBufferRegionKHR,
     pub callable_shader_binding_table_buffer: Option<crate::device::BufferResource>,
     pub callable_shader_binding_table: ash::vk::StridedBufferRegionKHR,
-    pub descriptor_sets: Vec<ash::vk::DescriptorSet>,
-    pub cbuffer_descriptor_sets: Vec<ash::vk::DescriptorSet>,
-    pub cbuffer_dynamic_offsets: Vec<u32>,
 }
 
 impl RenderResourceBase for RenderRayTracingShaderTableVk {
