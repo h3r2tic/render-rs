@@ -13,12 +13,14 @@ edition = "2018"
 render-hal = { path = "../render-hal" }
 render-core = { path = "../render-core" }
 ash = "0.31"
+ash-window = "0.5"
 relevant = "0.4.2"
 thiserror = "1.0"
 log = "0.4"
 fern = { version = "0.5.9", features = ["colored"] }
 chrono = "0.4.10"
 crossbeam-channel = "0.4.0"
+raw-window-handle = "0.3"
 smallvec = "1.1.0"
 enum_primitive = "0.1.1"
 downcast-rs = "1.1.1"

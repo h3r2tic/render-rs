@@ -246,12 +246,17 @@ impl RenderDeviceVk {
             .into_iter()
             .collect::<Vec<_>>();
 
-        assert!(swapchain_extensions
-            .iter()
-            .all(|&swapchain_extension| device_extensions
-                .iter()
-                .find(|&extension| extension == swapchain_extension)
-                .is_some()));
+        for swapchain_extension in swapchain_extensions.iter() {
+            assert!(
+                device_extensions
+                    .iter()
+                    .find(|&extension| extension == swapchain_extension)
+                    .is_some(),
+                "Device extension not supported: {}; supported extensions:\n{:#?}",
+                swapchain_extension,
+                device_extensions
+            );
+        }
 
         /*let features = ash::vk::PhysicalDeviceFeatures::builder()
         .shader_clip_distance(true)
@@ -783,7 +788,19 @@ impl RenderDevice for RenderDeviceVk {
         let raw_instance: &ash::Instance = instance.get_instance();
         let raw_entry: &ash::Entry = instance.get_entry();
 
-        let surface = unsafe { create_surface(raw_entry, raw_instance, &desc.window).unwrap() };
+        use raw_window_handle::*;
+
+        struct WindowHandle(RawWindowHandle);
+        unsafe impl HasRawWindowHandle for WindowHandle {
+            fn raw_window_handle(&self) -> RawWindowHandle {
+                self.0
+            }
+        }
+
+        let surface = unsafe {
+            ash_window::create_surface(raw_entry, raw_instance, &WindowHandle(desc.window), None)
+                .unwrap()
+        };
 
         let surface_formats = unsafe {
             instance
@@ -4554,83 +4571,6 @@ impl RenderDevice for RenderDeviceVk {
     fn ray_tracing_supported(&self) -> bool {
         return false;
     }
-}
-
-#[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
-unsafe fn create_surface<E: ash::version::EntryV1_0, I: ash::version::InstanceV1_0>(
-    entry: &E,
-    instance: &I,
-    window: &RenderSwapChainWindow,
-) -> Result<ash::vk::SurfaceKHR> {
-    use winit::os::unix::WindowExt;
-
-    let x11_display = window.get_xlib_display().unwrap();
-    let x11_window = window.get_xlib_window().unwrap();
-    let x11_create_info = ash::vk::XlibSurfaceCreateInfoKHR {
-        flags: Default::default(),
-        window: x11_window as ash::vk::Window,
-        dpy: x11_display as *mut ash::vk::Display,
-        ..Default::default()
-    };
-    let xlib_surface_loader = XlibSurface::new(entry, instance);
-    Ok(xlib_surface_loader
-        .create_xlib_surface_khr(&x11_create_info, None)
-        .unwrap() /* TODO */)
-}
-
-#[cfg(target_os = "macos")]
-unsafe fn create_surface<E: ash::version::EntryV1_0, I: ash::version::InstanceV1_0>(
-    entry: &E,
-    instance: &I,
-    window: &RenderSwapChainWindow,
-) -> Result<ash::vk::SurfaceKHR> {
-    //use winit::os::macos::WindowExt;
-
-    //let wnd: cocoa_id = mem::transmute(window.get_nswindow());
-
-    //let layer = CoreAnimationLayer::new();
-
-    //layer.set_edge_antialiasing_mask(0);
-    //layer.set_presents_with_transaction(false);
-    //layer.remove_all_animations();
-
-    //let view = wnd.contentView();
-
-    //layer.set_contents_scale(view.backingScaleFactor());
-    //view.setLayer(mem::transmute(layer.as_ref()));
-    //view.setWantsLayer(YES);
-
-    let create_info = ash::vk::MacOSSurfaceCreateInfoMVK {
-        s_type: ash::vk::StructureType::MACOS_SURFACE_CREATE_INFO_M,
-        p_next: ptr::null(),
-        flags: Default::default(),
-        //p_view: window.get_nsview() as *const std::os::raw::c_void,
-        p_view: window.ns_view,
-    };
-
-    let macos_surface_loader = MacOSSurface::new(entry, instance);
-    Ok(macos_surface_loader
-        .create_mac_os_surface_mvk(&create_info, None)
-        .unwrap()) // TODO:
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn create_surface<E: ash::version::EntryV1_0, I: ash::version::InstanceV1_0>(
-    entry: &E,
-    instance: &I,
-    window: &RenderSwapChainWindow,
-) -> Result<ash::vk::SurfaceKHR> {
-    let win32_create_info = ash::vk::Win32SurfaceCreateInfoKHR {
-        s_type: ash::vk::StructureType::WIN32_SURFACE_CREATE_INFO_KHR,
-        p_next: ptr::null(),
-        flags: Default::default(),
-        hinstance: window.hinstance,
-        hwnd: window.hwnd,
-    };
-    let win32_surface_loader = Win32Surface::new(entry, instance);
-    Ok(win32_surface_loader
-        .create_win32_surface(&win32_create_info, None)
-        .unwrap() /* TODO */)
 }
 
 #[repr(C)]

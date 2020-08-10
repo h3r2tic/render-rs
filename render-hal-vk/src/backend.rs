@@ -186,13 +186,16 @@ impl RenderBackendVk {
 
             explicit_extensions.push(String::from("VK_KHR_get_physical_device_properties2"));
 
+            //let layers = layers.iter().map(|layer| layer.name.into()).collect();
+
             trace!("Selected extensions: {:#?}", explicit_extensions);
+            trace!("Selected layers: {:#?}", explicit_layers);
 
             InstanceConfig {
                 app_name: "render-hal-vk".into(),
                 app_version: vk::make_version(1, 0, 0),
-                layers: layers.iter().map(|layer| layer.name.into()).collect(),
-                //layers: explicit_layers,
+                //layers,
+                layers: explicit_layers,
                 extensions: explicit_extensions,
             }
         })

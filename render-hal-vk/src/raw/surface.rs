@@ -88,12 +88,13 @@ impl SurfaceFn {
     pub fn extensions() -> Vec<&'static CStr> {
         vec![
             ash::extensions::khr::Surface::name(),
+            // TODO: get those from `ash-window`
             #[cfg(target_os = "macos")]
             ash::extensions::mvk::MacOSSurface::name(),
             #[cfg(target_os = "windows")]
             ash::extensions::khr::Win32Surface::name(),
             #[cfg(all(unix, not(target_os = "android"), not(target_os = "macos")))]
-            ash::extensions::XlibSurface::name(),
+            ash::extensions::khr::XlibSurface::name(),
             //ash::extensions::XcbSurface::name(),
             //ash::extensions::WaylandSurface::name(),
         ]

@@ -433,13 +433,12 @@ impl Default for RenderDrawPacket {
 }
 
 //#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[derive(Clone)]
 pub struct RenderSwapChainDesc {
     pub width: u32,
     pub height: u32,
     pub format: RenderFormat,
     pub buffer_count: u32,
-    pub window: RenderSwapChainWindow,
+    pub window: raw_window_handle::RawWindowHandle,
     //pub window: &'a winit::Window,
 }
 
